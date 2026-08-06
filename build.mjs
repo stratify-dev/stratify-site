@@ -6,7 +6,7 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 export const FALLBACK_VERSION = 'v0.4.0';
 
 export function applyTokens(text, tokens) {
-  return text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+  return text.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
     if (!Object.hasOwn(tokens, key)) throw new Error(`unknown placeholder ${match}`);
     return String(tokens[key]);
   });
