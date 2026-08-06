@@ -101,6 +101,14 @@ stratify-site/
 └── .github/workflows/deploy.yml
 ```
 
+### Scripts
+
+| Script | Does |
+|--------|------|
+| `npm run build` | Builds `dist/` |
+| `npm test` | Builds into a temp dir and runs the assertions below |
+| `npm run dev` | Builds, then serves `dist/` on port 8000 with Node's built-in static handler, rebuilding on demand |
+
 ### Deploy workflow
 
 `.github/workflows/deploy.yml`, triggered on push to `main`, on
@@ -130,13 +138,16 @@ Accents come from severity, so the site and the tool agree:
 
 | Token | Meaning | Light | Dark |
 |-------|---------|-------|------|
-| `--sev-info` | info findings | blue | brighter blue |
-| `--sev-warn` | warning findings | amber | brighter amber |
-| `--sev-error` | error findings | red | brighter red |
-| `--accent` | links, primary button | derived from info | derived from info |
+| `--sev-info` | info findings | `#1d5fd0` | `#7fa9f5` |
+| `--sev-warn` | warning findings | `#9a6100` | `#e8b04b` |
+| `--sev-error` | error findings | `#b3261e` | `#f28b82` |
+| `--accent` | links, primary button | `#1d5fd0` | `#7fa9f5` |
+| `--bg` | page background | `#fbfaf8` | `#12141a` |
+| `--fg` | body text | `#1a1c22` | `#e6e8ee` |
 
-Exact hex values get chosen during implementation and checked for WCAG AA contrast on
-both backgrounds. Severity colors carry a label or icon in every use, never color alone.
+Every pair above clears WCAG AA (4.5:1) against its own background. Implementation
+verifies each ratio and adjusts lightness only, keeping hue. Severity colors always carry
+a text label, never color alone.
 
 ### Motion
 
@@ -207,8 +218,8 @@ stated in the site repo README so future edits land in the right place.
 ## Performance budget
 
 - No client-side framework. `theme.js` stays under 3 KB.
-- No web fonts loaded from a third party. System font stack, with a self-hosted monospace
-  face only if the system stack proves inadequate.
+- No web fonts. System stacks only: `ui-sans-serif, system-ui, ...` for text and
+  `ui-monospace, SFMono-Regular, Menlo, monospace` for code.
 - Total landing page transfer under 150 KB.
 - All CSS in two files, both render-blocking and small.
 
@@ -219,7 +230,9 @@ stated in the site repo README so future edits land in the right place.
 1. Every file in `content/` produced a page at its expected path.
 2. `dist/index.html` exists and contains the hero headline.
 3. No `{{` token survives anywhere in `dist/`.
-4. Every internal `href` in every built page resolves to a real file in `dist/`.
+4. Every same-origin `href` resolves: a path href points at a real file in `dist/`, and a
+   fragment href points at an element with a matching `id` on the same page. External
+   `http(s)` hrefs and `mailto:` are skipped.
 5. The sidebar nav appears on all four docs pages, with all four links.
 6. Version substitution replaced `{{VERSION}}` with something matching `v\d+\.\d+\.\d+`.
 7. `CNAME` reached `dist/` with the right content.
@@ -240,7 +253,7 @@ pass, and a Lighthouse run.
 
 ## Rollout
 
-1. Create `stratify-dev/stratify-site`, push the built site.
+1. Create `stratify-dev/stratify-site` and push the source. CI builds and deploys.
 2. Enable GitHub Pages (source: GitHub Actions) and set the custom domain.
 3. Add the CNAME record in `digitalocean-dns`, apply, wait for propagation.
 4. Enforce HTTPS once the certificate is issued.
