@@ -83,7 +83,7 @@ Produces a build that copies static files into an output directory, with a test 
   "engines": { "node": ">=20" },
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/",
+    "test": "node --test test/*.mjs",
     "dev": "node build.mjs && python3 -m http.server 8000 --directory dist"
   },
   "dependencies": {

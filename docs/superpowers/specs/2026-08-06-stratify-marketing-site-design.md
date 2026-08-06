@@ -109,7 +109,7 @@ stratify-site/
 | Script | Does |
 |--------|------|
 | `npm run build` | Builds `dist/` |
-| `npm test` | Builds into a temp dir and runs the assertions below |
+| `npm test` | Builds into a temp dir and runs the assertions below (`node --test test/*.mjs`; the shell expands the glob, so it works on Node 20 and 22 alike) |
 | `npm run dev` | Builds, then serves `dist/` on port 8000 with `python3 -m http.server`, matching how the other dynaum site repos preview locally |
 
 ### Deploy workflow

@@ -6,7 +6,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test 'test/*.mjs'",
+    "test": "node --test test/*.mjs",
     "dev": "node build.mjs && python3 -m http.server 8000 --directory dist"
   },
   "dependencies": {
