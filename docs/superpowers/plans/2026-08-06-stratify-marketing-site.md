@@ -40,7 +40,10 @@
 |------|----------------|
 | `package.json` | Deps, scripts, engines |
 | `build.mjs` | The entire build: token substitution, markdown pipeline, nav, output |
-| `templates/docs.html` | Docs page shell (head, nav, sidebar slot, article slot, anchors slot, prev/next slot, footer) |
+| `templates/docs.html` | Docs page shell (head, sidebar slot, article slot, anchors slot, prev/next slot) |
+| `templates/head-scripts.html` | The inline theme-flash guard, shared by both page types |
+| `templates/nav.html` | The site header, shared by both page types |
+| `templates/foot.html` | The site footer, live region, and script tag, shared by both page types |
 | `content/install.md` | Install and quick start |
 | `content/analyses.md` | The six analyses plus `stratify.toml` config |
 | `content/ci.md` | GitHub Action and SARIF |
@@ -81,8 +84,7 @@ Produces a build that copies static files into an output directory, with a test 
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test test/",
-    "dev": "node build.mjs && node --run serve",
-    "serve": "node -e \"import('node:http').then(({default:h})=>import('node:fs').then(({default:fs})=>h.createServer((q,s)=>{let p='dist'+q.url.split('?')[0];if(p.endsWith('/'))p+='index.html';if(!fs.existsSync(p)&&fs.existsSync(p+'/index.html'))p+='/index.html';if(!fs.existsSync(p)){s.statusCode=404;return s.end('not found')}const t={'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml'}[p.slice(p.lastIndexOf('.'))]||'text/plain';s.setHeader('content-type',t);s.end(fs.readFileSync(p))}).listen(8000,()=>console.log('http://localhost:8000'))))\""
+    "dev": "node build.mjs && python3 -m http.server 8000 --directory dist"
   },
   "dependencies": {
     "marked": "^15.0.0",
@@ -360,7 +362,7 @@ Produces one HTML page per markdown file, rendered into the docs shell.
 
 **Interfaces:**
 - Consumes: `applyTokens` from Task 2.
-- Produces: `parseFrontmatter(raw)` returning `{ data, body }`, exported from `build.mjs`. `build()` now returns `pages` as an array of `{ slug, title, order, description, headings }` sorted by `order`, where `headings` is an array of `{ id, text }`. Output path per page: `<outDir>/docs/<slug>/index.html`.
+- Produces: `parseFrontmatter(raw)` returning `{ data, body }` and `injectPartials(html, partials)` returning a string, both exported from `build.mjs`. Partial slots are HTML comments: `<!--HEAD-SCRIPTS-->`, `<!--NAV-->`, `<!--FOOT-->`. Any page carrying a slot gets the partial; a page without the slot is left alone. `build()` now returns `pages` as an array of `{ slug, title, order, description, headings }` sorted by `order`, where `headings` is an array of `{ id, text }`. Output path per page: `<outDir>/docs/<slug>/index.html`.
 
 - [ ] **Step 1: Create the docs shell**
 
@@ -377,24 +379,11 @@ Produces one HTML page per markdown file, rendered into the docs shell.
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/docs.css">
-  <script>
-    (() => {
-      const saved = localStorage.getItem('stratify-theme');
-      const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    })();
-  </script>
+  <!--HEAD-SCRIPTS-->
 </head>
 <body class="docs">
   <a class="skip" href="#content">Skip to content</a>
-  <header class="topnav">
-    <a class="wordmark" href="/">Stratify</a>
-    <nav aria-label="Primary">
-      <a href="/docs/install/">Docs</a>
-      <a href="https://github.com/stratify-dev/stratify">GitHub</a>
-    </nav>
-    <button class="theme-toggle" type="button" aria-label="Switch theme">Theme</button>
-  </header>
+  <!--NAV-->
   <div class="docs-layout">
     <nav class="sidebar" aria-label="Documentation">
       <!--SIDEBAR-->
@@ -413,13 +402,48 @@ Produces one HTML page per markdown file, rendered into the docs shell.
       <!--ANCHORS-->
     </aside>
   </div>
-  <footer class="sitefoot">
-    <p>Stratify {{VERSION}} · MIT · <a href="https://github.com/stratify-dev/stratify">source</a> · built by <a href="https://dynaum.com">Elber Ribeiro</a></p>
-  </footer>
-  <div class="sr-live" aria-live="polite"></div>
-  <script src="/theme.js" defer></script>
+  <!--FOOT-->
 </body>
 </html>
+```
+
+- [ ] **Step 1b: Create the three shared partials**
+
+Both page types inject these, so the header, footer, and theme guard have one source each. The theme guard has to stay inline and synchronous, or the page paints in the wrong theme before the script loads.
+
+`templates/head-scripts.html`:
+
+```html
+<script>
+  (() => {
+    const saved = localStorage.getItem('stratify-theme');
+    const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  })();
+</script>
+```
+
+`templates/nav.html`:
+
+```html
+<header class="topnav">
+  <a class="wordmark" href="/">Stratify</a>
+  <nav aria-label="Primary">
+    <a href="/docs/install/">Docs</a>
+    <a href="https://github.com/stratify-dev/stratify">GitHub</a>
+  </nav>
+  <button class="theme-toggle" type="button" aria-label="Switch theme">Theme</button>
+</header>
+```
+
+`templates/foot.html`:
+
+```html
+<footer class="sitefoot">
+  <p>Stratify {{VERSION}} · MIT · <a href="https://github.com/stratify-dev/stratify">source</a> · built by <a href="https://dynaum.com">Elber Ribeiro</a> · &copy; {{YEAR}}</p>
+</footer>
+<div class="sr-live" aria-live="polite"></div>
+<script src="/theme.js" defer></script>
 ```
 
 - [ ] **Step 2: Create the first content file**
@@ -481,6 +505,22 @@ Add to `build.mjs`:
 import { readdir } from 'node:fs/promises';
 import { Marked, marked } from 'marked';
 
+const PARTIALS = ['head-scripts', 'nav', 'foot'];
+
+async function loadPartials() {
+  const entries = await Promise.all(
+    PARTIALS.map(async (name) => [name, (await readFile(path.join(ROOT, 'templates', `${name}.html`), 'utf8')).trim()]),
+  );
+  return Object.fromEntries(entries);
+}
+
+export function injectPartials(html, partials) {
+  return html
+    .replace('<!--HEAD-SCRIPTS-->', partials['head-scripts'])
+    .replace('<!--NAV-->', partials.nav)
+    .replace('<!--FOOT-->', partials.foot);
+}
+
 export function parseFrontmatter(raw) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw);
   if (!match) throw new Error('missing frontmatter');
@@ -516,7 +556,8 @@ function makeRenderer(headings) {
 Inside `build()`, replace the `return` with:
 
 ```js
-  const template = await readFile(path.join(ROOT, 'templates', 'docs.html'), 'utf8');
+  const partials = await loadPartials();
+  const template = injectPartials(await readFile(path.join(ROOT, 'templates', 'docs.html'), 'utf8'), partials);
   const files = (await readdir(path.join(ROOT, 'content'))).filter((f) => f.endsWith('.md')).sort();
 
   const parsed = [];
@@ -558,6 +599,16 @@ Inside `build()`, replace the `return` with:
     pages: parsed.map(({ slug, title, order, description, headings }) => ({ slug, title, order, description, headings })),
   };
 ```
+
+Now give the landing page the same shell. In `build()`, delete the `index.html` write added in Task 2 and put this in its place, below the `loadPartials()` call (it needs `partials` in scope):
+
+```js
+  const indexPath = path.join(outDir, 'index.html');
+  const indexHtml = injectPartials(await readFile(indexPath, 'utf8'), partials);
+  await writeFile(indexPath, applyTokens(indexHtml, tokens));
+```
+
+Partials are injected before `applyTokens` runs, so `{{VERSION}}` inside `foot.html` resolves like any other token. The landing page has no slots until Task 9, and `String.replace` on a missing marker is a no-op, so this is inert until then.
 
 A fresh `Marked` instance per page matters. `marked.use()` accumulates extensions on the shared singleton, so a loop would stack one renderer per file. `escapeHtml` matters too: `{{TITLE}}` lands in raw HTML, and "Install & quick start" contains an ampersand.
 
@@ -871,10 +922,16 @@ async function htmlFiles(dir) {
 
 const exists = async (p) => stat(p).then(() => true, () => false);
 
-test('no unresolved tokens survive anywhere', async () => {
+const SLOTS = ['HEAD-SCRIPTS', 'NAV', 'FOOT', 'SIDEBAR', 'CONTENT', 'ANCHORS', 'PREVNEXT'];
+
+test('no unresolved tokens or slots survive anywhere', async () => {
   for (const file of await htmlFiles(out)) {
     const text = await readFile(file, 'utf8');
-    assert.ok(!text.includes('{{'), `unresolved token in ${path.relative(out, file)}`);
+    const rel = path.relative(out, file);
+    assert.ok(!text.includes('{{'), `unresolved token in ${rel}`);
+    for (const slot of SLOTS) {
+      assert.ok(!text.includes(`<!--${slot}-->`), `unfilled ${slot} slot in ${rel}`);
+    }
   }
 });
 
@@ -1258,6 +1315,16 @@ test('landing page has every section', async () => {
   assert.match(html, /data-copy/);
 });
 
+test('the landing page and the docs shell share one header and footer', async () => {
+  const landing = await readFile(path.join(out, 'index.html'), 'utf8');
+  const docs = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  for (const page of [landing, docs]) {
+    assert.match(page, /<header class="topnav">/);
+    assert.match(page, /<footer class="sitefoot">/);
+    assert.match(page, /stratify-theme/);
+  }
+});
+
 test('the strata graphic is accessible', async () => {
   const html = await readFile(path.join(out, 'index.html'), 'utf8');
   assert.match(html, /<svg[^>]*role="img"/);
@@ -1297,25 +1364,12 @@ Replace `src/index.html` entirely. Head and opening sections:
   <meta property="og:url" content="https://stratify.dynaum.com/">
   <meta property="og:type" content="website">
   <link rel="stylesheet" href="/styles.css">
-  <script>
-    (() => {
-      const saved = localStorage.getItem('stratify-theme');
-      const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    })();
-  </script>
+  <!--HEAD-SCRIPTS-->
 </head>
 <body class="landing">
   <a class="skip" href="#main">Skip to content</a>
 
-  <header class="topnav">
-    <a class="wordmark" href="/">Stratify</a>
-    <nav aria-label="Primary">
-      <a href="/docs/install/">Docs</a>
-      <a href="https://github.com/stratify-dev/stratify">GitHub</a>
-    </nav>
-    <button class="theme-toggle" type="button" aria-label="Switch theme">Theme</button>
-  </header>
+  <!--NAV-->
 
   <main id="main">
     <section class="hero">
@@ -1504,11 +1558,7 @@ stratify check .</code></pre>
     </section>
   </main>
 
-  <footer class="sitefoot">
-    <p>Stratify {{VERSION}} · MIT · <a href="https://github.com/stratify-dev/stratify">source</a> · built by <a href="https://dynaum.com">Elber Ribeiro</a> · &copy; {{YEAR}}</p>
-  </footer>
-  <div class="sr-live" aria-live="polite"></div>
-  <script src="/theme.js" defer></script>
+  <!--FOOT-->
 </body>
 </html>
 ```
@@ -1516,7 +1566,7 @@ stratify check .</code></pre>
 - [ ] **Step 7: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 22 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
+Expected: PASS, 23 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
 
 - [ ] **Step 8: Commit**
 
@@ -1744,7 +1794,7 @@ test('nothing loads from a third-party host', async () => {
 - [ ] **Step 5: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 24 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
+Expected: PASS, 25 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
 
 - [ ] **Step 6: Review both themes in a browser**
 
