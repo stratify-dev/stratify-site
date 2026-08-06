@@ -1716,12 +1716,37 @@ Replace `src/docs.css`:
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 4: Add the page-weight and no-third-party tests**
+
+Append to `test/build.test.mjs`:
+
+```js
+test('the landing page stays under the 150 KB budget', async () => {
+  let total = 0;
+  for (const file of ['index.html', 'styles.css', 'theme.js', 'assets/favicon.svg']) {
+    total += Buffer.byteLength(await readFile(path.join(out, file)));
+  }
+  assert.ok(total < 150 * 1024, `landing page weighs ${Math.round(total / 1024)} KB`);
+});
+
+test('nothing loads from a third-party host', async () => {
+  for (const file of await htmlFiles(out)) {
+    const html = await readFile(file, 'utf8');
+    for (const [, url] of html.matchAll(/\s(?:src|href)="(https?:\/\/[^"]+)"/g)) {
+      const tag = html.slice(Math.max(0, html.indexOf(url) - 200), html.indexOf(url));
+      const loads = /<(script|link)\b[^>]*$/.test(tag);
+      assert.ok(!loads, `${path.relative(out, file)} loads ${url} from a third party`);
+    }
+  }
+});
+```
+
+- [ ] **Step 5: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 22 tests. No assertion changed, so this confirms the styles broke nothing.
+Expected: PASS, 24 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
 
-- [ ] **Step 5: Review both themes in a browser**
+- [ ] **Step 6: Review both themes in a browser**
 
 Run: `npm run dev`
 Check at 1440px, 900px, and 375px widths, in light and dark:
@@ -1731,10 +1756,10 @@ Check at 1440px, 900px, and 375px widths, in light and dark:
 - Toggle "Emulate prefers-reduced-motion" in devtools and reload: all content is visible with no transitions.
 - Tab through the page: focus rings are visible on every link and button.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/styles.css src/docs.css
+git add src/styles.css src/docs.css test/build.test.mjs
 git commit -m "feat: landing and docs styling for both themes"
 ```
 
