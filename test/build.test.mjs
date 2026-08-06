@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { build } from '../build.mjs';
+import { build, applyTokens } from '../build.mjs';
 
 let out;
 
@@ -30,4 +30,18 @@ test('copies assets', async () => {
 test('copies CNAME verbatim', async () => {
   const cname = await readFile(path.join(out, 'CNAME'), 'utf8');
   assert.equal(cname.trim(), 'stratify.dynaum.com');
+});
+
+test('substitutes scalar tokens', () => {
+  assert.equal(applyTokens('use @{{VERSION}} now', { VERSION: 'v1.2.3' }), 'use @v1.2.3 now');
+});
+
+test('throws on an unknown token', () => {
+  assert.throws(() => applyTokens('{{NOPE}}', { VERSION: 'v1.2.3' }), /NOPE/);
+});
+
+test('resolves the version into the landing page', async () => {
+  const html = await readFile(path.join(out, 'index.html'), 'utf8');
+  assert.match(html, /stratify-dev\/stratify@v9\.9\.9/);
+  assert.ok(!html.includes('{{'), 'unresolved token left in index.html');
 });
