@@ -289,7 +289,7 @@ In `build.mjs`, add these exports above `build()`:
 import { readFile, writeFile } from 'node:fs/promises';
 
 export function applyTokens(text, tokens) {
-  return text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+  return text.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
     if (!Object.hasOwn(tokens, key)) throw new Error(`unknown placeholder ${match}`);
     return String(tokens[key]);
   });
@@ -338,12 +338,87 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 Run: `npm test`
 Expected: PASS, 7 tests.
 
-- [ ] **Step 6: Verify the fallback path by hand**
+- [ ] **Step 6: Cover the fallback branches with tests**
+
+`resolveVersion()` carries the "telemetry never fails the build" guarantee, so its failure paths need automated coverage, not only a manual check. The helper also captures stderr, which keeps test output pristine while asserting the warning fired.
+
+Append to `test/build.test.mjs`:
+
+```js
+import { resolveVersion, FALLBACK_VERSION } from '../build.mjs';
+
+async function withStubbedLookup(fetchStub, fn) {
+  const realFetch = globalThis.fetch;
+  const realWrite = process.stderr.write;
+  const savedEnv = process.env.STRATIFY_VERSION;
+  const stderr = [];
+  delete process.env.STRATIFY_VERSION;
+  globalThis.fetch = fetchStub;
+  process.stderr.write = (chunk) => {
+    stderr.push(String(chunk));
+    return true;
+  };
+  try {
+    return { value: await fn(), stderr: stderr.join('') };
+  } finally {
+    globalThis.fetch = realFetch;
+    process.stderr.write = realWrite;
+    if (savedEnv === undefined) delete process.env.STRATIFY_VERSION;
+    else process.env.STRATIFY_VERSION = savedEnv;
+  }
+}
+
+test('falls back when the lookup rejects', async () => {
+  const { value, stderr } = await withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion);
+  assert.equal(value, FALLBACK_VERSION);
+  assert.match(stderr, /warn: version lookup failed \(offline\)/);
+});
+
+test('falls back on a non-ok response', async () => {
+  const { value, stderr } = await withStubbedLookup(() => Promise.resolve({ ok: false, status: 503 }), resolveVersion);
+  assert.equal(value, FALLBACK_VERSION);
+  assert.match(stderr, /503/);
+});
+
+test('falls back on a malformed tag_name', async () => {
+  const { value, stderr } = await withStubbedLookup(
+    () => Promise.resolve({ ok: true, json: () => Promise.resolve({ tag_name: 'latest' }) }),
+    resolveVersion,
+  );
+  assert.equal(value, FALLBACK_VERSION);
+  assert.match(stderr, /unexpected tag_name/);
+});
+
+test('STRATIFY_VERSION short-circuits the lookup', async () => {
+  const savedEnv = process.env.STRATIFY_VERSION;
+  const realFetch = globalThis.fetch;
+  process.env.STRATIFY_VERSION = 'v1.2.3';
+  globalThis.fetch = () => {
+    throw new Error('the network must not be touched when the env var is set');
+  };
+  try {
+    assert.equal(await resolveVersion(), 'v1.2.3');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (savedEnv === undefined) delete process.env.STRATIFY_VERSION;
+    else process.env.STRATIFY_VERSION = savedEnv;
+  }
+});
+
+test('a malformed token throws instead of surviving', () => {
+  assert.throws(() => applyTokens('{{ VERSION }}', { VERSION: 'v1.2.3' }), /VERSION/);
+});
+```
+
+Run: `npm test`
+Expected: PASS, 12 tests. Output stays clean — the helper swallows the warnings it asserts on.
+
+- [ ] **Step 7: Verify the fallback path by hand**
 
 Run: `STRATIFY_VERSION= node -e "import('./build.mjs').then(async m => { const f = globalThis.fetch; globalThis.fetch = () => Promise.reject(new Error('offline')); console.log(await m.resolveVersion()); globalThis.fetch = f; })"`
 Expected: prints a warning to stderr and `v0.4.0` to stdout. Exit code 0.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add build.mjs src/index.html test/build.test.mjs
@@ -615,7 +690,7 @@ A fresh `Marked` instance per page matters. `marked.use()` accumulates extension
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 9 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 7: Commit**
 
@@ -724,7 +799,7 @@ Append to `src/styles.css`:
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 11 tests.
+Expected: PASS, 16 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -881,7 +956,7 @@ In the page-writing loop, replace the three empty `.replace()` arguments:
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 14 tests.
+Expected: PASS, 19 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -979,7 +1054,7 @@ Expected: FAIL. `docs.css` and `theme.js` are referenced by `templates/docs.html
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 16 tests.
+Expected: PASS, 21 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1178,7 +1253,7 @@ if (reveals.length && 'IntersectionObserver' in window) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 18 tests.
+Expected: PASS, 23 tests.
 
 - [ ] **Step 6: Check it in a browser**
 
@@ -1274,7 +1349,7 @@ test('docs pages expose every anchor the landing page links to', async () => {
 - [ ] **Step 6: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 19 tests. These anchors are the contract the landing page links against in the next task.
+Expected: PASS, 24 tests. These anchors are the contract the landing page links against in the next task.
 
 - [ ] **Step 7: Read the pages in a browser**
 
@@ -1566,7 +1641,7 @@ stratify check .</code></pre>
 - [ ] **Step 7: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 23 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
+Expected: PASS, 28 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
 
 - [ ] **Step 8: Commit**
 
@@ -1794,7 +1869,7 @@ test('nothing loads from a third-party host', async () => {
 - [ ] **Step 5: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 25 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
+Expected: PASS, 30 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
 
 - [ ] **Step 6: Review both themes in a browser**
 
