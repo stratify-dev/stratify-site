@@ -255,3 +255,18 @@ test('revealed content is never hidden from readers without JavaScript', async (
   const page = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
   assert.match(page, /classList\.add\('js'\)/, 'the inline head script must set the .js marker before first paint');
 });
+
+test('docs pages expose every anchor the landing page links to', async () => {
+  const required = {
+    install: ['install', 'first-scan', 'output-formats', 'failing-the-build'],
+    analyses: ['dead-code', 'duplication', 'complexity', 'churn-hotspots', 'dependency-cycles', 'layer-boundaries'],
+    ci: ['the-github-action', 'action-inputs', 'sarif-and-code-scanning'],
+    integrations: ['mcp-server', 'editor-language-server', 'opentelemetry-export'],
+  };
+  for (const [slug, anchors] of Object.entries(required)) {
+    const html = await readFile(path.join(out, 'docs', slug, 'index.html'), 'utf8');
+    for (const anchor of anchors) {
+      assert.match(html, new RegExp(`id="${anchor}"`), `${slug} is missing the ${anchor} heading`);
+    }
+  }
+});
