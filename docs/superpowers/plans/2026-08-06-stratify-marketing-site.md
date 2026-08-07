@@ -2026,12 +2026,30 @@ test('the landing page stays under the 150 KB budget', async () => {
 });
 
 test('nothing loads from a third-party host', async () => {
-  for (const file of await htmlFiles(out)) {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+
+  // Only rels that actually fetch a subresource count. rel="canonical" and
+  // friends are metadata: they name a URL, they never load it.
+  const FETCHING_RELS = new Set([
+    'stylesheet', 'icon', 'apple-touch-icon', 'manifest',
+    'preload', 'prefetch', 'preconnect', 'dns-prefetch',
+  ]);
+
+  for (const file of files) {
     const html = await readFile(file, 'utf8');
-    for (const [, url] of html.matchAll(/\s(?:src|href)="(https?:\/\/[^"]+)"/g)) {
-      const tag = html.slice(Math.max(0, html.indexOf(url) - 200), html.indexOf(url));
-      const loads = /<(script|link)\b[^>]*$/.test(tag);
-      assert.ok(!loads, `${path.relative(out, file)} loads ${url} from a third party`);
+    const rel = path.relative(out, file);
+
+    for (const [, src] of html.matchAll(/<script\b[^>]*\ssrc="(https?:\/\/[^"]+)"/g)) {
+      assert.fail(`${rel} loads a script from ${src}`);
+    }
+
+    for (const [tag] of html.matchAll(/<link\b[^>]*>/g)) {
+      const href = /\shref="(https?:\/\/[^"]+)"/.exec(tag)?.[1];
+      if (!href) continue;
+      const linkRel = (/\srel="([^"]+)"/.exec(tag)?.[1] ?? '').toLowerCase();
+      const fetches = linkRel.split(/\s+/).some((r) => FETCHING_RELS.has(r));
+      assert.ok(!fetches, `${rel} loads ${href} from a third party via rel="${linkRel}"`);
     }
   }
 });
