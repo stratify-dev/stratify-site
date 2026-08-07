@@ -1958,6 +1958,60 @@ Replace `src/docs.css`:
 }
 ```
 
+- [ ] **Step 3b: Carry over three items from the Task 9 review**
+
+**Replace the em dashes in both page titles.** House style rules them out, and the footer already uses a middle dot as its separator, so match that.
+
+`src/index.html`:
+
+```html
+  <title>Stratify · one code quality gate for every language in your repo</title>
+```
+
+`templates/docs.html`:
+
+```html
+  <title>{{TITLE}} · Stratify docs</title>
+```
+
+**Fix a test that passes for the wrong reason.** In `test/build.test.mjs`, the assertion
+
+```js
+  assert.match(html, /One binary\. Six languages\. Six analyses\./);
+```
+
+never matches the `<h1>` it appears to check. The heading carries a `<br>` between the second and third sentence, so the literal-space match fails there and succeeds instead against the `og:description` meta tag, which happens to contain the same phrase. Delete the tag and the test still passes. Replace it with an assertion on the heading itself:
+
+```js
+  const h1 = /<h1>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? '';
+  const h1Text = h1.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.equal(h1Text, 'One binary. Six languages. Six analyses.');
+```
+
+Replacing tags with a space rather than nothing matters — otherwise `<br>` collapses "languages." and "Six" into one word.
+
+**Guard copy targets and id uniqueness.** Every `[data-copy]` value names another element by id. Nothing currently catches a typo there, and a dangling selector produces a button that silently does nothing. Duplicate ids break `aria-labelledby` and the fragment checker's assumptions at the same time. Append:
+
+```js
+test('every copy button targets a real element, and ids are unique', async () => {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
+    const html = await readFile(file, 'utf8');
+    const rel = path.relative(out, file);
+
+    const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+    const duplicates = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    assert.deepEqual(duplicates, [], `duplicate id(s) in ${rel}`);
+
+    for (const [, selector] of html.matchAll(/\sdata-copy="([^"]+)"/g)) {
+      assert.match(selector, /^#[\w-]+$/, `${rel}: data-copy="${selector}" is not a simple id selector`);
+      assert.ok(ids.includes(selector.slice(1)), `${rel}: data-copy="${selector}" points at no element`);
+    }
+  }
+});
+```
+
 - [ ] **Step 4: Add the page-weight and no-third-party tests**
 
 Append to `test/build.test.mjs`:
@@ -1986,7 +2040,7 @@ test('nothing loads from a third-party host', async () => {
 - [ ] **Step 5: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 31 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
+Expected: PASS, 32 tests. Three of those are new in this task and one existing assertion was corrected; the styles themselves change no test outcome.
 
 - [ ] **Step 6: Review both themes in a browser**
 
