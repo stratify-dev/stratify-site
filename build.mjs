@@ -98,6 +98,29 @@ export async function resolveVersion() {
   }
 }
 
+export function renderSidebar(pages, currentSlug) {
+  const items = pages.map((p) => {
+    const current = p.slug === currentSlug ? ' aria-current="page"' : '';
+    return `<li><a href="/docs/${p.slug}/"${current}>${escapeHtml(p.title)}</a></li>`;
+  });
+  return `<ul>${items.join('')}</ul>`;
+}
+
+export function renderAnchors(headings) {
+  if (headings.length === 0) return '';
+  const items = headings.map((h) => `<li><a href="#${h.id}">${escapeHtml(h.text)}</a></li>`);
+  return `<ul>${items.join('')}</ul>`;
+}
+
+export function renderPrevNext(pages, index) {
+  const prev = pages[index - 1];
+  const next = pages[index + 1];
+  const parts = [];
+  if (prev) parts.push(`<a class="prev" rel="prev" href="/docs/${prev.slug}/"><span>Previous</span>${escapeHtml(prev.title)}</a>`);
+  if (next) parts.push(`<a class="next" rel="next" href="/docs/${next.slug}/"><span>Next</span>${escapeHtml(next.title)}</a>`);
+  return parts.join('');
+}
+
 export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBACK_VERSION } = {}) {
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
@@ -131,17 +154,17 @@ export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBA
   }
   parsed.sort((a, b) => a.order - b.order);
 
-  for (const page of parsed) {
+  for (const [index, page] of parsed.entries()) {
     const shell = applyTokens(template, {
       ...tokens,
       TITLE: escapeHtml(page.title),
       DESCRIPTION: escapeHtml(page.description),
     });
     const out = shell
-      .replace('<!--SIDEBAR-->', '')
+      .replace('<!--SIDEBAR-->', renderSidebar(parsed, page.slug))
       .replace('<!--CONTENT-->', page.html)
-      .replace('<!--ANCHORS-->', '')
-      .replace('<!--PREVNEXT-->', '');
+      .replace('<!--ANCHORS-->', renderAnchors(page.headings))
+      .replace('<!--PREVNEXT-->', renderPrevNext(parsed, index));
     await mkdir(path.join(outDir, 'docs', page.slug), { recursive: true });
     await writeFile(path.join(outDir, 'docs', page.slug, 'index.html'), out);
   }

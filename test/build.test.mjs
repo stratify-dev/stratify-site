@@ -135,3 +135,31 @@ test('ships no highlighting runtime', async () => {
   const html = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
   assert.ok(!html.includes('shiki.js'), 'client-side shiki bundle leaked into the page');
 });
+
+const SLUGS = ['install', 'analyses', 'ci', 'integrations'];
+
+test('every docs page carries the full sidebar', async () => {
+  for (const slug of SLUGS) {
+    const html = await readFile(path.join(out, 'docs', slug, 'index.html'), 'utf8');
+    for (const other of SLUGS) {
+      assert.match(html, new RegExp(`href="/docs/${other}/"`), `${slug} is missing a link to ${other}`);
+    }
+    assert.match(html, new RegExp(`aria-current="page"[^>]*>|href="/docs/${slug}/" aria-current="page"`));
+  }
+});
+
+test('lists on-page anchors', async () => {
+  const html = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.match(html, /href="#install"/);
+  assert.match(html, /href="#first-scan"/);
+});
+
+test('links previous and next pages', async () => {
+  const first = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.ok(!first.includes('rel="prev"'), 'first page should have no previous link');
+  assert.match(first, /rel="next"[^>]*>|href="\/docs\/analyses\/" rel="next"/);
+
+  const last = await readFile(path.join(out, 'docs', 'integrations', 'index.html'), 'utf8');
+  assert.match(last, /rel="prev"/);
+  assert.ok(!last.includes('rel="next"'), 'last page should have no next link');
+});
