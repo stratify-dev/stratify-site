@@ -1424,7 +1424,7 @@ Then one `h2` per analysis, in this exact order and wording so the slugs match: 
 - Complexity: cyclomatic complexity, severity ranking.
 - Churn hotspots: complexity crossed with git history, the complexity floor, and why hotspots emit at `info` severity so they advise rather than fail a gate.
 - Dependency cycles: file-level and package-level, with Go packages and Python `__init__.py` handled as real package edges.
-- Layer boundaries: needs a `stratify.toml`. Fold the whole config story in here as `h3` subsections: `Presets` (`rails`, `layered`, and auto-detection from `app/controllers/`, `pom.xml`, or `build.gradle`), and `Custom layers and rules` (a full `stratify.toml` example with `preset`, `[layers]`, and `[[forbid]]`, plus the merge rule: your layer keys replace preset keys of the same name, your `[[forbid]]` rules add to the preset's).
+- Layer boundaries: needs a `stratify.toml`. Fold the whole config story in here as `h3` subsections: `Presets` (`rails`, `layered`, and auto-detection). State the detection rule exactly as `crates/stratify-cli/src/run.rs` implements it: the `rails` preset applies when the root holds an `app/controllers/` directory **or** a `config/routes.rb` file; the `layered` preset applies when it holds a `pom.xml` **or** a `build.gradle`; anything else gets no boundary checks. The engine README omits `config/routes.rb`, so the source governs here, and `Custom layers and rules` (a full `stratify.toml` example with `preset`, `[layers]`, and `[[forbid]]`, plus the merge rule: your layer keys replace preset keys of the same name, your `[[forbid]]` rules add to the preset's).
 
 Add a `## Confidence` section before the per-analysis sections explaining the confidence levels and how they map onto severity.
 
