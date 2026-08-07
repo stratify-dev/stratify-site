@@ -1156,13 +1156,39 @@ test('theme.js stays under the 3 KB budget', async () => {
   assert.match(js, /stratify-theme/);
 });
 
-test('both palettes are defined', async () => {
+test('both palettes are defined and actually differ', async () => {
   const css = await readFile(path.join(out, 'styles.css'), 'utf8');
   for (const token of ['--bg', '--fg', '--accent', '--sev-info', '--sev-warn', '--sev-error']) {
     assert.match(css, new RegExp(`${token}:`), `${token} is not defined`);
   }
   assert.match(css, /\[data-theme='dark'\]|\[data-theme="dark"\]/);
   assert.match(css, /prefers-reduced-motion/);
+
+  // A palette that resolves to the same value in both themes would pass a
+  // name-only check while shipping one theme twice.
+  const valueOf = (block, token) => new RegExp(`${token}:\\s*([^;]+);`).exec(block)?.[1]?.trim();
+  const light = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  const dark = /\[data-theme=['"]dark['"]\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  for (const token of ['--bg', '--fg', '--accent']) {
+    const l = valueOf(light, token);
+    const d = valueOf(dark, token);
+    assert.ok(l && d, `${token} missing from one of the two palettes`);
+    assert.notEqual(l, d, `${token} is identical in both themes`);
+  }
+});
+
+test('revealed content is never hidden from readers without JavaScript', async () => {
+  const css = await readFile(path.join(out, 'styles.css'), 'utf8');
+  const hidingRules = [...css.matchAll(/([^{}]*\[data-reveal\][^{}]*)\{([^}]*)\}/g)]
+    .filter((m) => /opacity:\s*0/.test(m[2]))
+    .map((m) => m[1].trim());
+  assert.ok(hidingRules.length > 0, 'expected a rule hiding revealed content before it animates in');
+  for (const selector of hidingRules) {
+    assert.match(selector, /\.js\s/, `"${selector}" hides content without requiring the .js marker`);
+  }
+
+  const page = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.match(page, /classList\.add\('js'\)/, 'the inline head script must set the .js marker before first paint');
 });
 ```
 
@@ -1257,17 +1283,40 @@ code, pre { font-family: var(--mono); }
 [data-reveal] { opacity: 1; }
 
 @media (prefers-reduced-motion: no-preference) {
-  [data-reveal] {
+  .js [data-reveal] {
     opacity: 0;
     transform: translateY(12px);
     transition: opacity 0.5s ease, transform 0.5s ease;
     transition-delay: calc(var(--reveal-index, 0) * 70ms);
   }
-  [data-reveal].is-visible {
+  .js [data-reveal].is-visible {
     opacity: 1;
     transform: none;
   }
 }
+```
+
+Two guards protect readers here, and both matter.
+
+The base `[data-reveal] { opacity: 1 }` rule sits outside the media query, so a reader who turned on reduce-motion never enters the hidden state at all.
+
+The `.js` prefix covers the other case. Without it, a reader whose JavaScript never runs — blocked, failed to load, disabled — and who has *not* enabled reduce-motion would match the `opacity: 0` rule with nothing left to add `.is-visible`, leaving that content invisible forever. Gating on a class that only JavaScript can set means no-JS readers never reach the hidden state either. The marker is set synchronously in the next step, before first paint, so there is no flash.
+
+- [ ] **Step 3b: Set the `.js` marker before first paint**
+
+The CSS above only hides content for readers whose JavaScript runs. Something has to say so, synchronously, before the first paint. `templates/head-scripts.html` already runs inline in `<head>` for exactly this reason, so add one line to it rather than creating a second inline script.
+
+Edit `templates/head-scripts.html` to read:
+
+```html
+<script>
+  (() => {
+    document.documentElement.classList.add('js');
+    const saved = localStorage.getItem('stratify-theme');
+    const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  })();
+</script>
 ```
 
 - [ ] **Step 4: Write the client script**
@@ -1321,7 +1370,7 @@ if (reveals.length && 'IntersectionObserver' in window) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 23 tests.
+Expected: PASS, 24 tests.
 
 - [ ] **Step 6: Check it in a browser**
 
@@ -1417,7 +1466,7 @@ test('docs pages expose every anchor the landing page links to', async () => {
 - [ ] **Step 6: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 24 tests. These anchors are the contract the landing page links against in the next task.
+Expected: PASS, 25 tests. These anchors are the contract the landing page links against in the next task.
 
 - [ ] **Step 7: Read the pages in a browser**
 
@@ -1709,7 +1758,7 @@ stratify check .</code></pre>
 - [ ] **Step 7: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 28 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
+Expected: PASS, 29 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
 
 - [ ] **Step 8: Commit**
 
@@ -1937,7 +1986,7 @@ test('nothing loads from a third-party host', async () => {
 - [ ] **Step 5: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 30 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
+Expected: PASS, 31 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
 
 - [ ] **Step 6: Review both themes in a browser**
 
