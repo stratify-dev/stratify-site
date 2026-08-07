@@ -1,12 +1,197 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Stratify</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stratify — one code quality gate for every language in your repo</title>
+  <meta name="description" content="Stratify parses Java, Ruby, TypeScript, Python, Go, and Rust into one model and runs six static analyses on it. One binary, one config, one report. CLI, CI gate, SARIF, MCP, LSP, and OpenTelemetry.">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://stratify.dynaum.com/">
+  <meta property="og:title" content="Stratify">
+  <meta property="og:description" content="One binary. Six languages. Six analyses. Findings you can trust.">
+  <meta property="og:url" content="https://stratify.dynaum.com/">
+  <meta property="og:type" content="website">
   <link rel="stylesheet" href="/styles.css">
+  <!--HEAD-SCRIPTS-->
 </head>
-<body>
-  <h1>One binary. Six languages. Six analyses.</h1>
-  <pre><code>uses: stratify-dev/stratify@{{VERSION}}</code></pre>
+<body class="landing">
+  <a class="skip" href="#main">Skip to content</a>
+
+  <!--NAV-->
+
+  <main id="main">
+    <section class="hero">
+      <p class="eyebrow">Polyglot codebase intelligence</p>
+      <h1>One binary. Six languages.<br>Six analyses.</h1>
+      <p class="lede">Your repo has a Rails app, a Spring service, a Go module, and a pile of TypeScript. Each one has its own linter, its own report shape, and its own quality bar. Stratify parses all of them into one model and runs the same six analyses on every line. One gate. One report. No servers, no accounts.</p>
+
+      <div class="cta">
+        <div class="cta-block">
+          <p class="cta-label">Add the gate to CI</p>
+          <pre id="cta-yaml"><code>- uses: stratify-dev/stratify@{{VERSION}}
+  with:
+    fail-on: warning</code></pre>
+          <button class="btn primary" type="button" data-copy="#cta-yaml">Copy workflow step</button>
+        </div>
+        <div class="cta-block">
+          <p class="cta-label">Or run it locally</p>
+          <pre id="cta-brew"><code>brew install stratify-dev/tap/stratify</code></pre>
+          <button class="btn" type="button" data-copy="#cta-brew">Copy install line</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="strata-section" aria-labelledby="strata-heading">
+      <h2 id="strata-heading">How it flows</h2>
+      <p class="section-lede">Six languages compress into one model. Six analyses read only the model, so each one is written once and works everywhere. One stream of findings fans out to every surface.</p>
+
+      <svg class="strata" viewBox="0 0 960 480" role="img" aria-labelledby="strata-title strata-desc" data-reveal>
+        <title id="strata-title">The Stratify pipeline</title>
+        <desc id="strata-desc">Java, Ruby, TypeScript, Python, Go, and Rust parse into one universal intermediate representation. Six analyses read that representation: dead code, duplication, complexity, churn hotspots, dependency cycles, and layer boundaries. They produce one stream of findings, which fans out to the CLI, a GitHub Action gate, SARIF, an MCP server, an editor language server, and OpenTelemetry export.</desc>
+
+        <g class="stratum lang">
+          <g class="chip"><rect x="10"  y="10" width="140" height="44" rx="8"/><text x="80"  y="37">Java</text></g>
+          <g class="chip"><rect x="170" y="10" width="140" height="44" rx="8"/><text x="240" y="37">Ruby</text></g>
+          <g class="chip"><rect x="330" y="10" width="140" height="44" rx="8"/><text x="400" y="37">TypeScript</text></g>
+          <g class="chip"><rect x="490" y="10" width="140" height="44" rx="8"/><text x="560" y="37">Python</text></g>
+          <g class="chip"><rect x="650" y="10" width="140" height="44" rx="8"/><text x="720" y="37">Go</text></g>
+          <g class="chip"><rect x="810" y="10" width="140" height="44" rx="8"/><text x="880" y="37">Rust</text></g>
+        </g>
+
+        <g class="rails" aria-hidden="true">
+          <path d="M80 54v14M240 54v14M400 54v14M560 54v14M720 54v14M880 54v14M80 68h800M480 68v14"/>
+        </g>
+
+        <g class="stratum ir" data-reveal>
+          <rect x="10" y="96" width="940" height="52" rx="10"/>
+          <text x="480" y="119">Universal IR</text>
+          <text x="480" y="137" class="sub">symbols · references · a confidence level on every edge</text>
+        </g>
+
+        <g class="rails" aria-hidden="true">
+          <path d="M480 148v14M80 176v-14M240 176v-14M400 176v-14M560 176v-14M720 176v-14M880 176v-14M80 162h800"/>
+        </g>
+
+        <g class="stratum analysis" data-reveal>
+          <g class="chip"><rect x="10"  y="176" width="140" height="44" rx="8"/><text x="80"  y="203">Dead code</text></g>
+          <g class="chip"><rect x="170" y="176" width="140" height="44" rx="8"/><text x="240" y="203">Duplication</text></g>
+          <g class="chip"><rect x="330" y="176" width="140" height="44" rx="8"/><text x="400" y="203">Complexity</text></g>
+          <g class="chip"><rect x="490" y="176" width="140" height="44" rx="8"/><text x="560" y="203">Hotspots</text></g>
+          <g class="chip"><rect x="650" y="176" width="140" height="44" rx="8"/><text x="720" y="203">Cycles</text></g>
+          <g class="chip"><rect x="810" y="176" width="140" height="44" rx="8"/><text x="880" y="203">Boundaries</text></g>
+        </g>
+
+        <g class="rails" aria-hidden="true">
+          <path d="M80 220v14M240 220v14M400 220v14M560 220v14M720 220v14M880 220v14M80 234h800M480 234v14"/>
+        </g>
+
+        <g class="stratum findings" data-reveal>
+          <rect x="10" y="262" width="940" height="52" rx="10"/>
+          <text x="480" y="285">Findings</text>
+          <text x="480" y="303" class="sub">rule · severity · confidence · file and line</text>
+        </g>
+
+        <g class="rails" aria-hidden="true">
+          <path d="M480 314v14M80 342v-14M240 342v-14M400 342v-14M560 342v-14M720 342v-14M880 342v-14M80 328h800"/>
+        </g>
+
+        <g class="stratum surface" data-reveal>
+          <g class="chip"><rect x="10"  y="342" width="140" height="44" rx="8"/><text x="80"  y="369">CLI</text></g>
+          <g class="chip"><rect x="170" y="342" width="140" height="44" rx="8"/><text x="240" y="369">CI gate</text></g>
+          <g class="chip"><rect x="330" y="342" width="140" height="44" rx="8"/><text x="400" y="369">SARIF</text></g>
+          <g class="chip"><rect x="490" y="342" width="140" height="44" rx="8"/><text x="560" y="369">MCP</text></g>
+          <g class="chip"><rect x="650" y="342" width="140" height="44" rx="8"/><text x="720" y="369">LSP</text></g>
+          <g class="chip"><rect x="810" y="342" width="140" height="44" rx="8"/><text x="880" y="369">OTel</text></g>
+        </g>
+      </svg>
+    </section>
+
+    <section class="proof" aria-labelledby="proof-heading">
+      <h2 id="proof-heading">What a run looks like</h2>
+      <div class="terminal" data-reveal>
+        <div class="terminal-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+        <pre><code><span class="prompt">$</span> stratify check .
+
+<span class="sev-warn">warn</span>  Unused.java:2  unused function `neverCalled`
+<span class="sev-info">info</span>  App.java:6  possibly unused function `helper`
+
+2 finding(s).</code></pre>
+      </div>
+      <p class="caption">Stratify says <strong>unused</strong> when it proved the call graph, and <strong>possibly unused</strong> when it could not. It never hides a real finding behind a guess.</p>
+    </section>
+
+    <section class="claims" aria-labelledby="claims-heading">
+      <h2 id="claims-heading">Why teams run it</h2>
+      <ul class="claim-grid">
+        <li data-reveal>
+          <h3>Six languages, one engine</h3>
+          <p>Every language parses into the same intermediate representation. Each analysis is written once and works everywhere, so a polyglot repo gets one consistent report instead of six dialects of "warning".</p>
+        </li>
+        <li data-reveal>
+          <h3>It tells you how sure it is</h3>
+          <p>Every finding carries a confidence level. Act on the warnings, triage the rest. No more muting a whole rule because it cried wolf twice.</p>
+        </li>
+        <li data-reveal>
+          <h3>It meets you where you work</h3>
+          <p>The same analysis drives the CLI, the CI gate, SARIF annotations, your editor, your coding agent, and your dashboards. One engine, six front doors.</p>
+        </li>
+      </ul>
+    </section>
+
+    <section id="analyses" aria-labelledby="analyses-heading">
+      <h2 id="analyses-heading">The six analyses</h2>
+      <p class="section-lede">They all run in a single pass. <a href="/docs/analyses/">Read the details</a>.</p>
+      <ul class="analysis-grid">
+        <li data-reveal><h3><a href="/docs/analyses/#dead-code">Dead code</a></h3><p>Functions and methods nothing reaches, resolved across files.</p></li>
+        <li data-reveal><h3><a href="/docs/analyses/#duplication">Duplication</a></h3><p>Copy-pasted and renamed blocks, across files and across languages.</p></li>
+        <li data-reveal><h3><a href="/docs/analyses/#complexity">Complexity</a></h3><p>Functions with high cyclomatic complexity, ranked by severity.</p></li>
+        <li data-reveal><h3><a href="/docs/analyses/#churn-hotspots">Churn hotspots</a></h3><p>Complex code changing often. The riskiest spots in the repo.</p></li>
+        <li data-reveal><h3><a href="/docs/analyses/#dependency-cycles">Dependency cycles</a></h3><p>Circular imports between files and packages.</p></li>
+        <li data-reveal><h3><a href="/docs/analyses/#layer-boundaries">Layer boundaries</a></h3><p>Imports breaking the architecture rules you wrote down.</p></li>
+      </ul>
+    </section>
+
+    <section id="languages" aria-labelledby="languages-heading">
+      <h2 id="languages-heading">Coverage today</h2>
+      <div class="matrix-scroll">
+        <table class="matrix">
+          <caption>Analysis coverage per language. Rust cycles and boundaries need module and <code>use</code> resolution, which is next on the roadmap.</caption>
+          <thead>
+            <tr><th scope="col">Language</th><th scope="col">Dead code</th><th scope="col">Duplication</th><th scope="col">Complexity</th><th scope="col">Hotspots</th><th scope="col">Cycles</th><th scope="col">Boundaries</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Java</th><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">Ruby</th><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">TypeScript</th><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">Python</th><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">Go</th><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">Rust</th><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="pending">Pending</td><td class="pending">Pending</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="surfaces" aria-labelledby="surfaces-heading">
+      <h2 id="surfaces-heading">Six front doors</h2>
+      <ul class="surface-grid">
+        <li data-reveal><h3>CLI</h3><pre><code>stratify check .</code></pre><p><a href="/docs/install/">Install and quick start</a></p></li>
+        <li data-reveal><h3>CI gate</h3><pre><code>- uses: stratify-dev/stratify@{{VERSION}}</code></pre><p><a href="/docs/ci/">Action inputs</a></p></li>
+        <li data-reveal><h3>SARIF</h3><pre><code>stratify check . --format sarif</code></pre><p><a href="/docs/ci/#sarif-and-code-scanning">Code scanning setup</a></p></li>
+        <li data-reveal><h3>MCP</h3><pre><code>stratify mcp</code></pre><p><a href="/docs/integrations/#mcp-server">Wire up your agent</a></p></li>
+        <li data-reveal><h3>LSP</h3><pre><code>stratify lsp</code></pre><p><a href="/docs/integrations/#editor-language-server">Editor diagnostics</a></p></li>
+        <li data-reveal><h3>OpenTelemetry</h3><pre><code>OTEL_EXPORTER_OTLP_ENDPOINT=...</code></pre><p><a href="/docs/integrations/#opentelemetry-export">Fleet dashboards</a></p></li>
+      </ul>
+    </section>
+
+    <section id="install" class="closing" aria-labelledby="install-heading">
+      <h2 id="install-heading">Scan your repo now</h2>
+      <pre id="closing-install"><code>brew install stratify-dev/tap/stratify
+stratify check .</code></pre>
+      <button class="btn primary" type="button" data-copy="#closing-install">Copy both lines</button>
+      <p><a href="/docs/install/">Other install methods</a> · <a href="https://github.com/stratify-dev/stratify">Source on GitHub</a></p>
+    </section>
+  </main>
+
+  <!--FOOT-->
 </body>
 </html>

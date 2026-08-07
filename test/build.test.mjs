@@ -270,3 +270,36 @@ test('docs pages expose every anchor the landing page links to', async () => {
     }
   }
 });
+
+test('landing page has every section', async () => {
+  const html = await readFile(path.join(out, 'index.html'), 'utf8');
+  for (const id of ['analyses', 'languages', 'surfaces', 'install']) {
+    assert.match(html, new RegExp(`id="${id}"`), `section ${id} is missing`);
+  }
+  assert.match(html, /One binary\. Six languages\. Six analyses\./);
+  assert.match(html, /data-copy/);
+});
+
+test('the landing page and the docs shell share one header and footer', async () => {
+  const landing = await readFile(path.join(out, 'index.html'), 'utf8');
+  const docs = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  for (const page of [landing, docs]) {
+    assert.match(page, /<header class="topnav">/);
+    assert.match(page, /<footer class="sitefoot">/);
+    assert.match(page, /stratify-theme/);
+  }
+});
+
+test('the strata graphic is accessible', async () => {
+  const html = await readFile(path.join(out, 'index.html'), 'utf8');
+  assert.match(html, /<svg[^>]*role="img"/);
+  assert.match(html, /<title id="strata-title">/);
+  assert.match(html, /aria-labelledby="strata-title strata-desc"/);
+});
+
+test('the language matrix names all six languages', async () => {
+  const html = await readFile(path.join(out, 'index.html'), 'utf8');
+  for (const lang of ['Java', 'Ruby', 'TypeScript', 'Python', 'Go', 'Rust']) {
+    assert.match(html, new RegExp(`>${lang}<`), `${lang} missing from the page`);
+  }
+});
