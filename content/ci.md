@@ -16,7 +16,7 @@ Drop Stratify into any workflow as a quality gate:
     fail-on: warning
 ```
 
-The action downloads a prebuilt `stratify` binary instead of compiling from source, so the step starts in seconds. If the download fails, the action falls back to building from source with `cargo install`, taking several minutes instead of seconds. A normally-fast step suddenly crawling usually means the fallback fired, not a hang. Pin a released tag, like `@{{VERSION}}`, for stable runs across your team. Point at `@main` instead if you want every workflow run to track the newest commit on the default branch.
+The action downloads a prebuilt `stratify` binary instead of compiling from source, so the step starts in seconds. If the download fails, the action installs a Rust toolchain when one isn't already present and builds from source with `cargo install`, which takes considerably longer than the usual few seconds. A normally-fast step suddenly crawling usually means this fallback fired, not a hang. Pin a released tag, like `@{{VERSION}}`, for stable runs across your team. Point at `@main` instead if you want every workflow run to track the newest commit on the default branch.
 
 ## Action inputs
 
