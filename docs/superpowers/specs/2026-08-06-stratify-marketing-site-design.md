@@ -70,8 +70,15 @@ Failure handling: a network error, a rate limit, or a non-200 response falls bac
 `FALLBACK_VERSION`, a constant at the top of `build.mjs`. The build prints a warning to
 stderr and exits 0. A failed version lookup never blocks a deploy.
 
-The build fails hard on one condition only: an unresolved `{{...}}` token surviving into
-`dist/`. That means a typo in a placeholder name.
+The split on failure: a *missing* input degrades, a *malformed* input stops the build.
+The version lookup is the degrading case above. Malformed input is the opposite, and it
+fails hard:
+
+- an unresolved `{{...}}` token surviving into `dist/`, meaning a typo in a placeholder name
+- a file in `content/` with no frontmatter block, which has no title, order, or slug to render with
+
+Both are author errors caught at build time rather than shipped to readers. Nothing else
+fails the build.
 
 ### File layout
 
