@@ -7,6 +7,8 @@ import { build, applyTokens, resolveVersion, FALLBACK_VERSION } from '../build.m
 
 let out;
 
+const textOf = (html) => html.replace(/<[^>]+>/g, '');
+
 before(async () => {
   out = await mkdtemp(path.join(tmpdir(), 'stratify-site-'));
   await build({ outDir: out, version: 'v9.9.9' });
@@ -111,7 +113,7 @@ test('a malformed token throws instead of surviving', () => {
 test('renders each content file to its own docs page', async () => {
   const html = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
   assert.match(html, /<h1>Install &amp; quick start<\/h1>/);
-  assert.match(html, /brew install stratify-dev\/tap\/stratify/);
+  assert.match(textOf(html), /brew install stratify-dev\/tap\/stratify/);
   assert.match(html, /<h2 id="install">Install<\/h2>/);
 });
 
