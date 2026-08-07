@@ -71,7 +71,7 @@ A finding fires when a file in one named layer imports a file in a layer it's fo
 
 Two presets ship built in. `rails` lays out `controllers`, `models`, `views`, `mailers`, and `jobs`, and stops `models` from importing `controllers`, `views`, or `mailers`. `layered` lays out `controller`, `service`, `repository`, and `domain`, the stack common to Spring, NestJS, and similar frameworks, and stops the lower layers from importing anything above them.
 
-With no `stratify.toml` present, Stratify looks for a marker and applies the matching preset: an `app/controllers/` directory suggests `rails`, and a `pom.xml` or `build.gradle` suggests `layered`. No marker means no boundary checks.
+With no `stratify.toml` present, Stratify looks for a marker and applies the matching preset. It applies `rails` when the repository root has an `app/controllers/` directory or a `config/routes.rb` file. It applies `layered` when the root has a `pom.xml` or a `build.gradle`. A root matching neither marker gets no boundary checks at all.
 
 ```toml
 preset = "rails"
