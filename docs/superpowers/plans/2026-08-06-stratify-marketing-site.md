@@ -1080,7 +1080,41 @@ Expected: FAIL. `docs.css` and `theme.js` are referenced by `templates/docs.html
 Run: `npm test`
 Expected: PASS, 21 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Tighten two loose navigation assertions from Task 5**
+
+Two assertions written in Task 5 use a regex alternation whose first branch matches if the attribute appears anywhere on the page. A bug marking the wrong page current, or pointing `rel="next"` at the wrong href, would still pass. Replace them with assertions naming the exact link.
+
+In the test `every docs page carries the full sidebar`, replace this line:
+
+```js
+    assert.match(html, new RegExp(`aria-current="page"[^>]*>|href="/docs/${slug}/" aria-current="page"`));
+```
+
+with:
+
+```js
+    const marked = [...html.matchAll(/<a href="\/docs\/([^"/]+)\/" aria-current="page">/g)].map((m) => m[1]);
+    assert.deepEqual(marked, [slug], `${slug} should be the only page marked current`);
+```
+
+In the test `links previous and next pages`, replace the two `assert.match` calls that use alternation with assertions naming the exact target. The page order is install, analyses, ci, integrations:
+
+```js
+  assert.match(first, /<a class="next" rel="next" href="\/docs\/analyses\/">/);
+```
+
+```js
+  assert.match(last, /<a class="prev" rel="prev" href="\/docs\/ci\/">/);
+```
+
+Leave the two `assert.ok(!...)` boundary checks in that test as they are — they already assert the right thing.
+
+- [ ] **Step 6: Run the tests again**
+
+Run: `npm test`
+Expected: PASS, 21 tests. The count is unchanged, since this step tightens existing assertions rather than adding new ones.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/docs.css src/theme.js test/build.test.mjs
