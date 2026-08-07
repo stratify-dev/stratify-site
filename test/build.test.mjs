@@ -192,13 +192,13 @@ test('no unresolved tokens or slots survive anywhere', async () => {
   }
 });
 
-test('every same-origin link resolves', async () => {
+test('every same-origin link and asset reference resolves', async () => {
   const problems = [];
   for (const file of await htmlFiles(out)) {
     const html = await readFile(file, 'utf8');
     const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
-    for (const [, href] of html.matchAll(/\shref="([^"]+)"/g)) {
-      if (/^(https?:|mailto:|tel:)/.test(href)) continue;
+    for (const [, href] of html.matchAll(/\s(?:href|src)="([^"]+)"/g)) {
+      if (/^(https?:|mailto:|tel:|data:)/.test(href)) continue;
       if (href.startsWith('#')) {
         if (href !== '#' && !ids.has(href.slice(1))) problems.push(`${path.relative(out, file)} -> ${href}`);
         continue;
