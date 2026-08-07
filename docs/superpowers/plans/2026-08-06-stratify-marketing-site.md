@@ -1004,11 +1004,15 @@ Produces a test failing the build on any broken same-origin link or unresolved t
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `test/build.test.mjs`:
+First extend the existing `node:fs/promises` import at the top of the file to include `stat`. Do not add a second import from the same module further down — one specifier, one import line:
 
 ```js
-import { stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
+```
 
+Then append to `test/build.test.mjs`:
+
+```js
 async function htmlFiles(dir) {
   const found = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -1024,7 +1028,9 @@ const exists = async (p) => stat(p).then(() => true, () => false);
 const SLOTS = ['HEAD-SCRIPTS', 'NAV', 'FOOT', 'SIDEBAR', 'CONTENT', 'ANCHORS', 'PREVNEXT'];
 
 test('no unresolved tokens or slots survive anywhere', async () => {
-  for (const file of await htmlFiles(out)) {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
     const text = await readFile(file, 'utf8');
     const rel = path.relative(out, file);
     assert.ok(!text.includes('{{'), `unresolved token in ${rel}`);
@@ -1036,7 +1042,9 @@ test('no unresolved tokens or slots survive anywhere', async () => {
 
 test('every same-origin link and asset reference resolves', async () => {
   const problems = [];
-  for (const file of await htmlFiles(out)) {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
     const html = await readFile(file, 'utf8');
     const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
     for (const [, href] of html.matchAll(/\s(?:href|src)="([^"]+)"/g)) {
@@ -2186,3 +2194,10 @@ Open https://stratify.dynaum.com and confirm:
 - [ ] **Step 10: Refresh the Obsidian note**
 
 Update the `stratify` note in the `web` vault: regenerate the `<!-- sync:auto -->` block and the `date` field only, adding the live URL. Leave the prose sections untouched.
+
+
+---
+
+## Appendix: why the two link tests assert a non-empty file list
+
+Both tests end in `assert.deepEqual(problems, [])`. If `htmlFiles()` ever returned an empty array — a renamed output directory, a build that silently wrote nothing — that assertion passes while checking nothing, and the safety net reports green on a broken site. Test ordering happens to protect against it today, since earlier tests read concrete files out of the same fixture, but that is incidental rather than guaranteed. The explicit length check makes the guarantee belong to the test itself.
