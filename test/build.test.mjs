@@ -221,11 +221,37 @@ test('theme.js stays under the 3 KB budget', async () => {
   assert.match(js, /stratify-theme/);
 });
 
-test('both palettes are defined', async () => {
+test('both palettes are defined and actually differ', async () => {
   const css = await readFile(path.join(out, 'styles.css'), 'utf8');
   for (const token of ['--bg', '--fg', '--accent', '--sev-info', '--sev-warn', '--sev-error']) {
     assert.match(css, new RegExp(`${token}:`), `${token} is not defined`);
   }
   assert.match(css, /\[data-theme='dark'\]|\[data-theme="dark"\]/);
   assert.match(css, /prefers-reduced-motion/);
+
+  // A palette that resolves to the same value in both themes would pass a
+  // name-only check while shipping one theme twice.
+  const valueOf = (block, token) => new RegExp(`${token}:\\s*([^;]+);`).exec(block)?.[1]?.trim();
+  const light = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  const dark = /\[data-theme=['"]dark['"]\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  for (const token of ['--bg', '--fg', '--accent']) {
+    const l = valueOf(light, token);
+    const d = valueOf(dark, token);
+    assert.ok(l && d, `${token} missing from one of the two palettes`);
+    assert.notEqual(l, d, `${token} is identical in both themes`);
+  }
+});
+
+test('revealed content is never hidden from readers without JavaScript', async () => {
+  const css = await readFile(path.join(out, 'styles.css'), 'utf8');
+  const hidingRules = [...css.matchAll(/([^{}]*\[data-reveal\][^{}]*)\{([^}]*)\}/g)]
+    .filter((m) => /opacity:\s*0/.test(m[2]))
+    .map((m) => m[1].trim());
+  assert.ok(hidingRules.length > 0, 'expected a rule hiding revealed content before it animates in');
+  for (const selector of hidingRules) {
+    assert.match(selector, /\.js\s/, `"${selector}" hides content without requiring the .js marker`);
+  }
+
+  const page = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.match(page, /classList\.add\('js'\)/, 'the inline head script must set the .js marker before first paint');
 });

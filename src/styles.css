@@ -79,13 +79,13 @@ code, pre { font-family: var(--mono); }
 [data-reveal] { opacity: 1; }
 
 @media (prefers-reduced-motion: no-preference) {
-  [data-reveal] {
+  .js [data-reveal] {
     opacity: 0;
     transform: translateY(12px);
     transition: opacity 0.5s ease, transform 0.5s ease;
     transition-delay: calc(var(--reveal-index, 0) * 70ms);
   }
-  [data-reveal].is-visible {
+  .js [data-reveal].is-visible {
     opacity: 1;
     transform: none;
   }
