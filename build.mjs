@@ -2,11 +2,20 @@ import { cp, mkdir, rm, readFile, writeFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Marked, marked } from 'marked';
+import { createHighlighter } from 'shiki';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 export const FALLBACK_VERSION = 'v0.4.0';
 
 const PARTIALS = ['head-scripts', 'nav', 'foot'];
+
+const LANGS = ['sh', 'bash', 'yaml', 'toml', 'json', 'js', 'ts', 'rust', 'ruby', 'python', 'go', 'java', 'text'];
+
+let highlighterPromise;
+function getHighlighter() {
+  highlighterPromise ??= createHighlighter({ themes: ['github-light', 'github-dark'], langs: LANGS });
+  return highlighterPromise;
+}
 
 async function loadPartials() {
   const entries = await Promise.all(
@@ -41,7 +50,7 @@ const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|
 const escapeHtml = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-function makeRenderer(headings) {
+function makeRenderer(headings, highlighter) {
   return {
     heading(token) {
       const text = token.text ?? '';
@@ -49,6 +58,16 @@ function makeRenderer(headings) {
       const id = slugify(text);
       if (depth === 2) headings.push({ id, text });
       return `<h${depth} id="${id}">${marked.parseInline(text)}</h${depth}>\n`;
+    },
+    code(tokenOrCode, infostring) {
+      const text = typeof tokenOrCode === 'string' ? tokenOrCode : tokenOrCode.text;
+      const requested = (typeof tokenOrCode === 'string' ? infostring : tokenOrCode.lang) || 'text';
+      const lang = LANGS.includes(requested) ? requested : 'text';
+      return highlighter.codeToHtml(text, {
+        lang,
+        themes: { light: 'github-light', dark: 'github-dark' },
+        defaultColor: false,
+      });
     },
   };
 }
@@ -92,13 +111,14 @@ export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBA
   const partials = await loadPartials();
   const template = injectPartials(await readFile(path.join(ROOT, 'templates', 'docs.html'), 'utf8'), partials);
   const files = (await readdir(path.join(ROOT, 'content'))).filter((f) => f.endsWith('.md')).sort();
+  const highlighter = await getHighlighter();
 
   const parsed = [];
   for (const file of files) {
     const raw = await readFile(path.join(ROOT, 'content', file), 'utf8');
     const { data, body } = parseFrontmatter(raw);
     const headings = [];
-    const md = new Marked({ renderer: makeRenderer(headings) });
+    const md = new Marked({ renderer: makeRenderer(headings, highlighter) });
     const html = md.parse(applyTokens(body, tokens));
     parsed.push({
       slug: file.replace(/\.md$/, ''),

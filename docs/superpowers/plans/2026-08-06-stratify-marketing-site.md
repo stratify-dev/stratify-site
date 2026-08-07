@@ -796,12 +796,36 @@ Append to `src/styles.css`:
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [ ] **Step 5: Adjust the Task 3 assertion that highlighting breaks**
+
+Task 3's test `renders each content file to its own docs page` asserts a literal command string appears in the page:
+
+```js
+  assert.match(html, /brew install stratify-dev\/tap\/stratify/);
+```
+
+Shiki wraps every token in its own `<span>`, so that contiguous string no longer exists in the markup even though the rendered text is unchanged. Do not loosen the regex with wildcards — that would let it match across unrelated content. Strip the tags and assert on the rendered text instead, which is what the assertion was always about.
+
+Add this helper near the top of `test/build.test.mjs`, beside the other helpers:
+
+```js
+const textOf = (html) => html.replace(/<[^>]+>/g, '');
+```
+
+Then change that one line to:
+
+```js
+  assert.match(textOf(html), /brew install stratify-dev\/tap\/stratify/);
+```
+
+Leave the other two assertions in that test alone. `<h1>Install &amp; quick start</h1>` and `<h2 id="install">Install</h2>` are markup assertions and must stay tag-sensitive.
+
+- [ ] **Step 6: Run the test to verify it passes**
 
 Run: `npm test`
 Expected: PASS, 16 tests.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add build.mjs src/styles.css test/build.test.mjs

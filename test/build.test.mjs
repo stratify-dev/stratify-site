@@ -121,3 +121,15 @@ test('reports built pages in order', async () => {
   assert.deepEqual(orders, [...orders].sort((a, b) => a - b));
   assert.ok(result.pages.some((p) => p.slug === 'install'));
 });
+
+test('highlights code blocks at build time with both themes', async () => {
+  const html = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.match(html, /class="shiki/);
+  assert.match(html, /--shiki-light:/);
+  assert.match(html, /--shiki-dark:/);
+});
+
+test('ships no highlighting runtime', async () => {
+  const html = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.ok(!html.includes('shiki.js'), 'client-side shiki bundle leaked into the page');
+});
