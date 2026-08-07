@@ -214,3 +214,18 @@ test('every same-origin link and asset reference resolves', async () => {
   }
   assert.deepEqual(problems, [], `broken links:\n${problems.join('\n')}`);
 });
+
+test('theme.js stays under the 3 KB budget', async () => {
+  const js = await readFile(path.join(out, 'theme.js'), 'utf8');
+  assert.ok(Buffer.byteLength(js) < 3072, `theme.js is ${Buffer.byteLength(js)} bytes`);
+  assert.match(js, /stratify-theme/);
+});
+
+test('both palettes are defined', async () => {
+  const css = await readFile(path.join(out, 'styles.css'), 'utf8');
+  for (const token of ['--bg', '--fg', '--accent', '--sev-info', '--sev-warn', '--sev-error']) {
+    assert.match(css, new RegExp(`${token}:`), `${token} is not defined`);
+  }
+  assert.match(css, /\[data-theme='dark'\]|\[data-theme="dark"\]/);
+  assert.match(css, /prefers-reduced-motion/);
+});
