@@ -1,6 +1,6 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { build, applyTokens, resolveVersion, FALLBACK_VERSION } from '../build.mjs';
@@ -165,8 +165,6 @@ test('links previous and next pages', async () => {
   assert.ok(!last.includes('rel="next"'), 'last page should have no next link');
 });
 
-import { stat } from 'node:fs/promises';
-
 async function htmlFiles(dir) {
   const found = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -182,7 +180,9 @@ const exists = async (p) => stat(p).then(() => true, () => false);
 const SLOTS = ['HEAD-SCRIPTS', 'NAV', 'FOOT', 'SIDEBAR', 'CONTENT', 'ANCHORS', 'PREVNEXT'];
 
 test('no unresolved tokens or slots survive anywhere', async () => {
-  for (const file of await htmlFiles(out)) {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
     const text = await readFile(file, 'utf8');
     const rel = path.relative(out, file);
     assert.ok(!text.includes('{{'), `unresolved token in ${rel}`);
@@ -194,7 +194,9 @@ test('no unresolved tokens or slots survive anywhere', async () => {
 
 test('every same-origin link and asset reference resolves', async () => {
   const problems = [];
-  for (const file of await htmlFiles(out)) {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
     const html = await readFile(file, 'utf8');
     const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
     for (const [, href] of html.matchAll(/\s(?:href|src)="([^"]+)"/g)) {
