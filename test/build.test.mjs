@@ -144,7 +144,8 @@ test('every docs page carries the full sidebar', async () => {
     for (const other of SLUGS) {
       assert.match(html, new RegExp(`href="/docs/${other}/"`), `${slug} is missing a link to ${other}`);
     }
-    assert.match(html, new RegExp(`aria-current="page"[^>]*>|href="/docs/${slug}/" aria-current="page"`));
+    const marked = [...html.matchAll(/<a href="\/docs\/([^"/]+)\/" aria-current="page">/g)].map((m) => m[1]);
+    assert.deepEqual(marked, [slug], `${slug} should be the only page marked current`);
   }
 });
 
@@ -157,9 +158,57 @@ test('lists on-page anchors', async () => {
 test('links previous and next pages', async () => {
   const first = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
   assert.ok(!first.includes('rel="prev"'), 'first page should have no previous link');
-  assert.match(first, /rel="next"[^>]*>|href="\/docs\/analyses\/" rel="next"/);
+  assert.match(first, /<a class="next" rel="next" href="\/docs\/analyses\/">/);
 
   const last = await readFile(path.join(out, 'docs', 'integrations', 'index.html'), 'utf8');
-  assert.match(last, /rel="prev"/);
+  assert.match(last, /<a class="prev" rel="prev" href="\/docs\/ci\/">/);
   assert.ok(!last.includes('rel="next"'), 'last page should have no next link');
+});
+
+import { stat } from 'node:fs/promises';
+
+async function htmlFiles(dir) {
+  const found = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...(await htmlFiles(full)));
+    else if (entry.name.endsWith('.html')) found.push(full);
+  }
+  return found;
+}
+
+const exists = async (p) => stat(p).then(() => true, () => false);
+
+const SLOTS = ['HEAD-SCRIPTS', 'NAV', 'FOOT', 'SIDEBAR', 'CONTENT', 'ANCHORS', 'PREVNEXT'];
+
+test('no unresolved tokens or slots survive anywhere', async () => {
+  for (const file of await htmlFiles(out)) {
+    const text = await readFile(file, 'utf8');
+    const rel = path.relative(out, file);
+    assert.ok(!text.includes('{{'), `unresolved token in ${rel}`);
+    for (const slot of SLOTS) {
+      assert.ok(!text.includes(`<!--${slot}-->`), `unfilled ${slot} slot in ${rel}`);
+    }
+  }
+});
+
+test('every same-origin link resolves', async () => {
+  const problems = [];
+  for (const file of await htmlFiles(out)) {
+    const html = await readFile(file, 'utf8');
+    const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+    for (const [, href] of html.matchAll(/\shref="([^"]+)"/g)) {
+      if (/^(https?:|mailto:|tel:)/.test(href)) continue;
+      if (href.startsWith('#')) {
+        if (href !== '#' && !ids.has(href.slice(1))) problems.push(`${path.relative(out, file)} -> ${href}`);
+        continue;
+      }
+      const clean = href.split('#')[0].split('?')[0];
+      if (clean === '') continue;
+      const target = path.join(out, clean.replace(/^\//, ''));
+      const ok = (await exists(target)) || (await exists(path.join(target, 'index.html')));
+      if (!ok) problems.push(`${path.relative(out, file)} -> ${href}`);
+    }
+  }
+  assert.deepEqual(problems, [], `broken links:\n${problems.join('\n')}`);
 });
