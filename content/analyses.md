@@ -8,7 +8,7 @@ All six analyses run in a single pass over the shared IR, so running every analy
 
 ## Confidence
 
-Every finding carries a confidence level: `unknown`, `likely`, or `certain`. Confidence records how sure Stratify is about the specific reference behind a finding, and it feeds directly into severity.
+Every finding carries a confidence level. Confidence records how sure Stratify is about the specific reference behind a finding, and it feeds directly into severity. The type defines three levels, `unknown`, `likely`, and `certain`, but only the last two ever land on a finding today. `unknown` exists for ordering and for defensive handling elsewhere in the codebase, not as a value you'll see in output.
 
 Dead code is where this shows up most. A function reached through a fully resolved, unambiguous call drops out of the report entirely: Stratify is certain it's used. A function reached only through a heuristic cross-file match, or not reached at all, still generates a finding, but the two cases get different severities. A likely-but-unresolved reference produces an info-level "possibly unused" finding. No reference at all produces a warning-level "unused" finding, at certain confidence, because the absence of any use is itself the certain fact.
 
@@ -24,7 +24,7 @@ The most common misreading: assuming every "possibly unused" line is dead code. 
 
 ## Duplication
 
-Duplication finds copy-pasted and renamed code blocks. Stratify normalizes every token to its class before comparing: identifiers become `ID`, numbers become `NUM`, strings become `STR`, and keywords and punctuation stay literal. Two blocks differing only in variable names still match, catching type-2 clones (renamed variables), not only identical text.
+Duplication finds copy-pasted and renamed code blocks. Stratify normalizes every token to its class before comparing: identifiers become `ID`, numbers become `NUM`, strings become `STR`, and keywords, operators, and punctuation stay literal. Two blocks differing only in variable names still match, catching type-2 clones (renamed variables), not only identical text.
 
 A finding fires when a run of normalized tokens repeats somewhere else in the repository, at or above a minimum length. Because normalization strips out language-specific identifier text, the same shape of code matches across two different languages, not only within one file.
 
@@ -41,7 +41,7 @@ Lower `min_tokens` to catch smaller fragments. Raise it to cut false positives, 
 
 Complexity flags functions with high cyclomatic complexity, the count of independent paths through a function's control flow.
 
-A finding fires once a function's complexity crosses the threshold, and severity ranks by how far past it the function sits: comfortably past the threshold is an info-level finding, and roughly double the threshold or beyond escalates to warning. This ranking separates "worth a look" from "refactor this now" without hiding either from the report.
+A finding fires once a function's complexity exceeds the threshold, and severity ranks by how far past it the function sits: below double the threshold is an info-level finding, and double the threshold or beyond escalates to warning. This ranking separates "worth a look" from "refactor this now" without hiding either from the report.
 
 The habit to build: read the complexity number in the message, not only the severity label. A function reported at info today, sitting a little over the threshold, is often a warning after one more `if` branch gets added.
 

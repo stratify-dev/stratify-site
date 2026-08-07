@@ -42,7 +42,7 @@ The server reads the workspace root from the `initialize` request your editor se
 
 ```sh
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example.com
-export OTEL_SERVICE_NAME=my-service   # optional, defaults to the git repo name
+export OTEL_SERVICE_NAME=my-service   # optional, see the fallback order below
 stratify check .
 ```
 
@@ -51,6 +51,8 @@ Or with flags, which override the environment variables:
 ```sh
 stratify check . --otlp-endpoint https://otlp.example.com --project my-service
 ```
+
+Service name resolves through a fallback chain, using the first one set: the `--project` flag, then `OTEL_SERVICE_NAME`, then the basename of your git remote, and finally the local directory name for a repository with no remote configured.
 
 Each run sends a set of gauges plus one summary event:
 
