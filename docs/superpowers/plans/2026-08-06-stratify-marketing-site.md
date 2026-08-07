@@ -1034,13 +1034,13 @@ test('no unresolved tokens or slots survive anywhere', async () => {
   }
 });
 
-test('every same-origin link resolves', async () => {
+test('every same-origin link and asset reference resolves', async () => {
   const problems = [];
   for (const file of await htmlFiles(out)) {
     const html = await readFile(file, 'utf8');
     const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
-    for (const [, href] of html.matchAll(/\shref="([^"]+)"/g)) {
-      if (/^(https?:|mailto:|tel:)/.test(href)) continue;
+    for (const [, href] of html.matchAll(/\s(?:href|src)="([^"]+)"/g)) {
+      if (/^(https?:|mailto:|tel:|data:)/.test(href)) continue;
       if (href.startsWith('#')) {
         if (href !== '#' && !ids.has(href.slice(1))) problems.push(`${path.relative(out, file)} -> ${href}`);
         continue;
@@ -1056,10 +1056,12 @@ test('every same-origin link resolves', async () => {
 });
 ```
 
+Scanning `src` as well as `href` is deliberate. A stylesheet is referenced by `href`, but a script is referenced by `src`, and a broken `<script src>` ships a page whose behavior silently dies. `data:` joins the skip list because inline data URIs have no file to resolve.
+
 - [ ] **Step 2: Run the test to see what breaks**
 
 Run: `npm test`
-Expected: FAIL. `docs.css` and `theme.js` are referenced by `templates/docs.html` but do not exist yet.
+Expected: FAIL, naming both `/docs.css` and `/theme.js`. `templates/docs.html` references both, and neither exists yet.
 
 - [ ] **Step 3: Create the two missing files**
 
