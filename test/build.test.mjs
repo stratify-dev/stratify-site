@@ -107,3 +107,17 @@ test('STRATIFY_VERSION short-circuits the lookup', async () => {
 test('a malformed token throws instead of surviving', () => {
   assert.throws(() => applyTokens('{{ VERSION }}', { VERSION: 'v1.2.3' }), /VERSION/);
 });
+
+test('renders each content file to its own docs page', async () => {
+  const html = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.match(html, /<h1>Install &amp; quick start<\/h1>/);
+  assert.match(html, /brew install stratify-dev\/tap\/stratify/);
+  assert.match(html, /<h2 id="install">Install<\/h2>/);
+});
+
+test('reports built pages in order', async () => {
+  const result = await build({ outDir: await mkdtemp(path.join(tmpdir(), 'stratify-order-')), version: 'v9.9.9' });
+  const orders = result.pages.map((p) => p.order);
+  assert.deepEqual(orders, [...orders].sort((a, b) => a - b));
+  assert.ok(result.pages.some((p) => p.slug === 'install'));
+});

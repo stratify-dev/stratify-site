@@ -1,9 +1,57 @@
-import { cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, rm, readFile, writeFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Marked, marked } from 'marked';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 export const FALLBACK_VERSION = 'v0.4.0';
+
+const PARTIALS = ['head-scripts', 'nav', 'foot'];
+
+async function loadPartials() {
+  const entries = await Promise.all(
+    PARTIALS.map(async (name) => [name, (await readFile(path.join(ROOT, 'templates', `${name}.html`), 'utf8')).trim()]),
+  );
+  return Object.fromEntries(entries);
+}
+
+export function injectPartials(html, partials) {
+  return html
+    .replace('<!--HEAD-SCRIPTS-->', partials['head-scripts'])
+    .replace('<!--NAV-->', partials.nav)
+    .replace('<!--FOOT-->', partials.foot);
+}
+
+export function parseFrontmatter(raw) {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw);
+  if (!match) throw new Error('missing frontmatter');
+  const data = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const sep = line.indexOf(':');
+    if (sep === -1) continue;
+    const key = line.slice(0, sep).trim();
+    const value = line.slice(sep + 1).trim();
+    data[key] = /^\d+$/.test(value) ? Number(value) : value;
+  }
+  return { data, body: raw.slice(match[0].length) };
+}
+
+const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+const escapeHtml = (s) =>
+  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function makeRenderer(headings) {
+  return {
+    heading(token) {
+      const text = token.text ?? '';
+      const depth = token.depth ?? 2;
+      const id = slugify(text);
+      if (depth === 2) headings.push({ id, text });
+      return `<h${depth} id="${id}">${marked.parseInline(text)}</h${depth}>\n`;
+    },
+  };
+}
 
 export function applyTokens(text, tokens) {
   return text.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
@@ -40,10 +88,53 @@ export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBA
   await cp(path.join(ROOT, 'CNAME'), path.join(outDir, 'CNAME'));
 
   const tokens = { VERSION: version, YEAR: '2026' };
-  const indexPath = path.join(outDir, 'index.html');
-  await writeFile(indexPath, applyTokens(await readFile(indexPath, 'utf8'), tokens));
 
-  return { outDir, version, pages: [] };
+  const partials = await loadPartials();
+  const template = injectPartials(await readFile(path.join(ROOT, 'templates', 'docs.html'), 'utf8'), partials);
+  const files = (await readdir(path.join(ROOT, 'content'))).filter((f) => f.endsWith('.md')).sort();
+
+  const parsed = [];
+  for (const file of files) {
+    const raw = await readFile(path.join(ROOT, 'content', file), 'utf8');
+    const { data, body } = parseFrontmatter(raw);
+    const headings = [];
+    const md = new Marked({ renderer: makeRenderer(headings) });
+    const html = md.parse(applyTokens(body, tokens));
+    parsed.push({
+      slug: file.replace(/\.md$/, ''),
+      title: data.title,
+      order: data.order,
+      description: data.description,
+      headings,
+      html,
+    });
+  }
+  parsed.sort((a, b) => a.order - b.order);
+
+  for (const page of parsed) {
+    const shell = applyTokens(template, {
+      ...tokens,
+      TITLE: escapeHtml(page.title),
+      DESCRIPTION: escapeHtml(page.description),
+    });
+    const out = shell
+      .replace('<!--SIDEBAR-->', '')
+      .replace('<!--CONTENT-->', page.html)
+      .replace('<!--ANCHORS-->', '')
+      .replace('<!--PREVNEXT-->', '');
+    await mkdir(path.join(outDir, 'docs', page.slug), { recursive: true });
+    await writeFile(path.join(outDir, 'docs', page.slug, 'index.html'), out);
+  }
+
+  const indexPath = path.join(outDir, 'index.html');
+  const indexHtml = injectPartials(await readFile(indexPath, 'utf8'), partials);
+  await writeFile(indexPath, applyTokens(indexHtml, tokens));
+
+  return {
+    outDir,
+    version,
+    pages: parsed.map(({ slug, title, order, description, headings }) => ({ slug, title, order, description, headings })),
+  };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
