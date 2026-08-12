@@ -31,7 +31,9 @@ queries the GitHub releases API and falls back to `FALLBACK_VERSION` in
 | Docs page layout | `src/docs.css` |
 
 The engine README keeps the pitch, install, and 60-second start. This site
-carries the long form. When they disagree, the site is wrong.
+carries the long form. When they disagree, the engine source is the arbiter,
+not either README: this branch found the engine's own README wrong about
+Rails autodetection, so the engine README can be out of date too.
 
 ## Deploy
 

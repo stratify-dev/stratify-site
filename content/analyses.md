@@ -41,17 +41,21 @@ Lower `min_tokens` to catch smaller fragments. Raise it to cut false positives, 
 
 Complexity flags functions with high cyclomatic complexity, the count of independent paths through a function's control flow.
 
-A finding fires once a function's complexity exceeds the threshold, and severity ranks by how far past it the function sits: below double the threshold is an info-level finding, and double the threshold or beyond escalates to warning. This ranking separates "worth a look" from "refactor this now" without hiding either from the report.
+A finding fires once a function's complexity exceeds 10, and severity ranks by how far past it the function sits: below 20 (double the threshold) is an info-level finding, and 20 or beyond escalates to warning. This ranking separates "worth a look" from "refactor this now" without hiding either from the report.
 
-The habit to build: read the complexity number in the message, not only the severity label. A function reported at info today, sitting a little over the threshold, is often a warning after one more `if` branch gets added.
+The habit to build: read the complexity number in the message, not only the severity label. A function reported at info today, sitting a little over 10, is often a warning after one more `if` branch gets added.
+
+This threshold is fixed at compile time. There is no `stratify.toml` setting to change it.
 
 ## Churn hotspots
 
 The churn hotspots analysis crosses complexity with git history: a function's complexity multiplied by how often its file has changed. High complexity in a file nobody touches isn't a hotspot. Neither is a frequently-changed file where every function stays simple. The combination is the risk signal.
 
-A complexity floor keeps trivial functions out of the ranking entirely, no matter how often their file changes. A finding fires once a function clears the floor and its score, complexity times churn, crosses the hotspot threshold.
+A complexity floor of 10 keeps trivial functions out of the ranking entirely, no matter how often their file changes: a function has to clear the same complexity bar the complexity analysis itself uses before churn is even considered. A finding fires once a function clears that floor and its score, complexity times churn, crosses 50.
 
 Hotspots emit at info severity, on purpose. This analysis prioritizes where to spend review time. It doesn't tell you anything is broken, so it never fails a `--fail-on` gate on its own. Treat it as a ranked list to work through, not a defect to fix.
+
+Both the complexity floor and the hotspot score threshold are fixed at compile time. There is no `stratify.toml` setting to change either.
 
 ## Dependency cycles
 
@@ -69,7 +73,7 @@ A finding fires when a file in one named layer imports a file in a layer it's fo
 
 ### Presets
 
-Two presets ship built in. `rails` lays out `controllers`, `models`, `views`, `mailers`, and `jobs`, and stops `models` from importing `controllers`, `views`, or `mailers`. `layered` lays out `controller`, `service`, `repository`, and `domain`, the stack common to Spring, NestJS, and similar frameworks, and stops the lower layers from importing anything above them.
+Two presets ship built in. `rails` lays out `controllers`, `models`, `views`, `mailers`, and `jobs`, and stops `models` from importing `controllers`, `views`, or `mailers`. `layered` lays out `controller`, `service`, `repository`, and `domain`, the stack common to Spring, NestJS, and similar frameworks, and forbids `repository` from importing `controller` or `service`, and `domain` from importing `controller`, `service`, or `repository`. `service` has no forbidden imports of its own: `service` importing `controller` does not violate this preset.
 
 With no `stratify.toml` present, Stratify looks for a marker and applies the matching preset. It applies `rails` when the repository root has an `app/controllers/` directory or a `config/routes.rb` file. It applies `layered` when the root has a `pom.xml` or a `build.gradle`. A root matching neither marker gets no boundary checks at all.
 

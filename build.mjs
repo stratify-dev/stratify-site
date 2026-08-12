@@ -51,6 +51,22 @@ export function parseFrontmatter(raw) {
   return { data, body: raw.slice(match[0].length) };
 }
 
+// A missing field parses as `undefined` (or `order` as `NaN`) rather than
+// throwing, so a content file dropping a field would otherwise ship
+// "<meta name="description" content="undefined">" or "<h1>undefined</h1>"
+// straight to production with a green build.
+export function validateFrontmatter(data, file) {
+  if (typeof data.title !== 'string' || data.title.trim() === '') {
+    throw new Error(`${file}: frontmatter is missing a non-empty "title"`);
+  }
+  if (typeof data.description !== 'string' || data.description.trim() === '') {
+    throw new Error(`${file}: frontmatter is missing a non-empty "description"`);
+  }
+  if (typeof data.order !== 'number' || Number.isNaN(data.order)) {
+    throw new Error(`${file}: frontmatter is missing a numeric "order"`);
+  }
+}
+
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 const escapeHtml = (s) =>
@@ -88,8 +104,13 @@ export function applyTokens(text, tokens) {
 export async function resolveVersion() {
   if (process.env.STRATIFY_VERSION) return process.env.STRATIFY_VERSION;
   try {
+    const headers = { accept: 'application/vnd.github+json', 'user-agent': 'stratify-site-build' };
+    // Unauthenticated requests share a 60/hr-per-IP limit, easy to trip on a
+    // shared Actions runner. The workflow's own GITHUB_TOKEN buys the 5000/hr
+    // authenticated limit; it's optional so local builds work without one.
+    if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
     const res = await fetch('https://api.github.com/repos/stratify-dev/stratify/releases/latest', {
-      headers: { accept: 'application/vnd.github+json', 'user-agent': 'stratify-site-build' },
+      headers,
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
@@ -99,6 +120,12 @@ export async function resolveVersion() {
     }
     return data.tag_name;
   } catch (err) {
+    // A degraded local build falling back to FALLBACK_VERSION is harmless.
+    // A degraded published build silently pins every reader to a stale
+    // version, so in CI this must fail loudly instead of falling back.
+    if (process.env.CI) {
+      throw new Error(`version lookup failed in CI (${err.message}), refusing to publish a stale fallback`);
+    }
     process.stderr.write(`warn: version lookup failed (${err.message}), using ${FALLBACK_VERSION}\n`);
     return FALLBACK_VERSION;
   }
@@ -135,7 +162,7 @@ export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBA
   await cp(path.join(ROOT, 'assets'), path.join(outDir, 'assets'), { recursive: true });
   await cp(path.join(ROOT, 'CNAME'), path.join(outDir, 'CNAME'));
 
-  const tokens = { VERSION: version, YEAR: '2026' };
+  const tokens = { VERSION: version, YEAR: String(new Date().getFullYear()) };
 
   const partials = await loadPartials();
   const template = injectPartials(await readFile(path.join(ROOT, 'templates', 'docs.html'), 'utf8'), partials);
@@ -146,6 +173,7 @@ export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBA
   for (const file of files) {
     const raw = await readFile(path.join(ROOT, 'content', file), 'utf8');
     const { data, body } = parseFrontmatter(raw);
+    validateFrontmatter(data, file);
     const headings = [];
     const md = new Marked({ renderer: makeRenderer(headings, highlighter) });
     const html = wrapTables(md.parse(applyTokens(body, tokens)));
@@ -175,6 +203,8 @@ export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBA
     await writeFile(path.join(outDir, 'docs', page.slug, 'index.html'), out);
   }
 
+  // Reads the landing page back out of outDir, so it depends on the earlier
+  // `cp` of src/ having already placed it there — keep this after that copy.
   const indexPath = path.join(outDir, 'index.html');
   const indexHtml = injectPartials(await readFile(indexPath, 'utf8'), partials);
   await writeFile(indexPath, applyTokens(indexHtml, tokens));

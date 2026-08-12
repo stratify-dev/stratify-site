@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { build, applyTokens, resolveVersion, FALLBACK_VERSION } from '../build.mjs';
+import { build, applyTokens, resolveVersion, validateFrontmatter, FALLBACK_VERSION } from '../build.mjs';
 
 let out;
 
@@ -92,6 +92,51 @@ test('falls back on a malformed tag_name', async () => {
   assert.match(stderr, /unexpected tag_name/);
 });
 
+test('in CI, a failed lookup throws instead of silently falling back', async () => {
+  const savedCi = process.env.CI;
+  process.env.CI = 'true';
+  try {
+    await assert.rejects(
+      () => withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion).then(({ value }) => value),
+      /version lookup failed in CI/,
+    );
+  } finally {
+    if (savedCi === undefined) delete process.env.CI;
+    else process.env.CI = savedCi;
+  }
+});
+
+test('outside CI, a failed lookup still falls back with a warning', async () => {
+  const savedCi = process.env.CI;
+  delete process.env.CI;
+  try {
+    const { value, stderr } = await withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion);
+    assert.equal(value, FALLBACK_VERSION);
+    assert.match(stderr, /warn: version lookup failed/);
+  } finally {
+    if (savedCi === undefined) delete process.env.CI;
+    else process.env.CI = savedCi;
+  }
+});
+
+test('sends an authorization header only when GITHUB_TOKEN is set', async () => {
+  const savedToken = process.env.GITHUB_TOKEN;
+  const capture = (expectAuth) => (url, options) => {
+    if (expectAuth) assert.equal(options.headers.authorization, 'Bearer secret-token');
+    else assert.ok(!('authorization' in options.headers), 'authorization header sent without a GITHUB_TOKEN');
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ tag_name: 'v1.2.3' }) });
+  };
+  try {
+    process.env.GITHUB_TOKEN = 'secret-token';
+    await withStubbedLookup(capture(true), resolveVersion);
+    delete process.env.GITHUB_TOKEN;
+    await withStubbedLookup(capture(false), resolveVersion);
+  } finally {
+    if (savedToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = savedToken;
+  }
+});
+
 test('STRATIFY_VERSION short-circuits the lookup', async () => {
   const savedEnv = process.env.STRATIFY_VERSION;
   const realFetch = globalThis.fetch;
@@ -110,6 +155,36 @@ test('STRATIFY_VERSION short-circuits the lookup', async () => {
 
 test('a malformed token throws instead of surviving', () => {
   assert.throws(() => applyTokens('{{ VERSION }}', { VERSION: 'v1.2.3' }), /VERSION/);
+});
+
+const VALID_FRONTMATTER = { title: 'Install & quick start', order: 1, description: 'Install Stratify.' };
+
+test('validateFrontmatter accepts a complete record', () => {
+  assert.doesNotThrow(() => validateFrontmatter(VALID_FRONTMATTER, 'install.md'));
+});
+
+test('validateFrontmatter throws naming the file and field when title is missing', () => {
+  const { title, ...rest } = VALID_FRONTMATTER;
+  assert.throws(() => validateFrontmatter(rest, 'install.md'), /install\.md.*title/s);
+});
+
+test('validateFrontmatter throws naming the file and field when description is missing', () => {
+  const { description, ...rest } = VALID_FRONTMATTER;
+  assert.throws(() => validateFrontmatter(rest, 'install.md'), /install\.md.*description/s);
+});
+
+test('validateFrontmatter throws naming the file and field when order is missing', () => {
+  const { order, ...rest } = VALID_FRONTMATTER;
+  assert.throws(() => validateFrontmatter(rest, 'install.md'), /install\.md.*order/s);
+});
+
+test('validateFrontmatter rejects a non-numeric order (NaN would otherwise reach the sidebar)', () => {
+  assert.throws(() => validateFrontmatter({ ...VALID_FRONTMATTER, order: 'first' }, 'install.md'), /install\.md.*order/s);
+});
+
+test('validateFrontmatter rejects an empty title or description', () => {
+  assert.throws(() => validateFrontmatter({ ...VALID_FRONTMATTER, title: '  ' }, 'install.md'), /install\.md.*title/s);
+  assert.throws(() => validateFrontmatter({ ...VALID_FRONTMATTER, description: '' }, 'install.md'), /install\.md.*description/s);
 });
 
 test('renders each content file to its own docs page', async () => {
@@ -198,20 +273,48 @@ test('every same-origin link and asset reference resolves', async () => {
   const problems = [];
   const files = await htmlFiles(out);
   assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+
+  // Build page path -> id set once, so a cross-page fragment link (e.g.
+  // /docs/analyses/#dead-code) can be checked against the ids the *target*
+  // page actually renders, not just the ids on the page holding the link.
+  const idsByFile = new Map();
   for (const file of files) {
     const html = await readFile(file, 'utf8');
-    const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+    idsByFile.set(file, new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1])));
+  }
+
+  const resolveTarget = async (clean) => {
+    const target = path.join(out, clean.replace(/^\//, ''));
+    try {
+      const info = await stat(target);
+      if (!info.isDirectory()) return target;
+      const withIndex = path.join(target, 'index.html');
+      return (await exists(withIndex)) ? withIndex : null;
+    } catch {
+      return null;
+    }
+  };
+
+  for (const file of files) {
+    const html = await readFile(file, 'utf8');
+    const ids = idsByFile.get(file);
     for (const [, href] of html.matchAll(/\s(?:href|src)="([^"]+)"/g)) {
       if (/^(https?:|mailto:|tel:|data:)/.test(href)) continue;
       if (href.startsWith('#')) {
         if (href !== '#' && !ids.has(href.slice(1))) problems.push(`${path.relative(out, file)} -> ${href}`);
         continue;
       }
-      const clean = href.split('#')[0].split('?')[0];
+      const [pathPart, fragment] = href.split('#');
+      const clean = pathPart.split('?')[0];
       if (clean === '') continue;
-      const target = path.join(out, clean.replace(/^\//, ''));
-      const ok = (await exists(target)) || (await exists(path.join(target, 'index.html')));
-      if (!ok) problems.push(`${path.relative(out, file)} -> ${href}`);
+      const targetFile = await resolveTarget(clean);
+      if (!targetFile) {
+        problems.push(`${path.relative(out, file)} -> ${href}`);
+        continue;
+      }
+      if (fragment && !idsByFile.get(targetFile)?.has(fragment)) {
+        problems.push(`${path.relative(out, file)} -> ${href} (no #${fragment} in ${path.relative(out, targetFile)})`);
+      }
     }
   }
   assert.deepEqual(problems, [], `broken links:\n${problems.join('\n')}`);
@@ -288,6 +391,7 @@ test('the landing page and the docs shell share one header and footer', async ()
     assert.match(page, /<header class="topnav">/);
     assert.match(page, /<footer class="sitefoot">/);
     assert.match(page, /stratify-theme/);
+    assert.match(page, /<script src="\/theme\.js" defer><\/script>/, 'the page must load theme.js, or [data-reveal] content never becomes visible');
   }
 });
 
