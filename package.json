@@ -1,0 +1,16 @@
+{
+  "name": "stratify-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.mjs",
+    "dev": "node build.mjs && python3 -m http.server 8000 --directory dist"
+  },
+  "dependencies": {
+    "marked": "^15.0.0",
+    "shiki": "^1.24.0"
+  }
+}

@@ -1,0 +1,41 @@
+.docs-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 200px;
+  gap: 2.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+  align-items: start;
+}
+.sidebar, .anchors { position: sticky; top: 5rem; font-size: 0.9rem; }
+.sidebar ul, .anchors ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.sidebar a, .anchors a { text-decoration: none; color: var(--muted); display: block; padding: 0.3rem 0; }
+.sidebar a:hover, .anchors a:hover { color: var(--fg); }
+.sidebar a[aria-current='page'] { color: var(--fg); font-weight: 600; border-left: 2px solid var(--accent); padding-left: 0.6rem; margin-left: -0.6rem; }
+.anchors-title { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; color: var(--muted); margin: 0 0 0.6rem; }
+
+.docs article { max-width: var(--measure); }
+.docs article h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); letter-spacing: -0.02em; margin: 0 0 1.5rem; }
+.docs article h2 { font-size: 1.35rem; letter-spacing: -0.01em; margin: 2.75rem 0 0.75rem; scroll-margin-top: 5rem; }
+.docs article h3 { font-size: 1.05rem; margin: 1.75rem 0 0.5rem; }
+.docs article pre { padding: 1rem 1.15rem; border-radius: var(--radius); border: 1px solid var(--line); overflow-x: auto; font-size: 0.88rem; }
+.docs article :not(pre) > code { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0.1em 0.35em; font-size: 0.88em; }
+.docs article table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+.docs .table-scroll { overflow-x: auto; max-width: 100%; }
+.docs article th, .docs article td { border: 1px solid var(--line); padding: 0.55rem 0.7rem; text-align: left; }
+.docs article blockquote { border-left: 3px solid var(--accent); margin: 1.5rem 0; padding: 0.25rem 0 0.25rem 1rem; color: var(--muted); }
+
+.prevnext { display: flex; justify-content: space-between; gap: 1rem; margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }
+.prevnext a { text-decoration: none; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1rem; color: var(--fg); background: var(--surface); }
+.prevnext .next { margin-left: auto; text-align: right; }
+.prevnext span { display: block; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+@media (max-width: 1080px) {
+  .docs-layout { grid-template-columns: 200px minmax(0, 1fr); }
+  .anchors { display: none; }
+}
+@media (max-width: 720px) {
+  .docs-layout { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: static; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
+  .sidebar ul { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; gap: 1rem; }
+}

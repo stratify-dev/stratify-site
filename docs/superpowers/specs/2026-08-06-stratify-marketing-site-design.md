@@ -70,8 +70,15 @@ Failure handling: a network error, a rate limit, or a non-200 response falls bac
 `FALLBACK_VERSION`, a constant at the top of `build.mjs`. The build prints a warning to
 stderr and exits 0. A failed version lookup never blocks a deploy.
 
-The build fails hard on one condition only: an unresolved `{{...}}` token surviving into
-`dist/`. That means a typo in a placeholder name.
+The split on failure: a *missing* input degrades, a *malformed* input stops the build.
+The version lookup is the degrading case above. Malformed input is the opposite, and it
+fails hard:
+
+- an unresolved `{{...}}` token surviving into `dist/`, meaning a typo in a placeholder name
+- a file in `content/` with no frontmatter block, which has no title, order, or slug to render with
+
+Both are author errors caught at build time rather than shipped to readers. Nothing else
+fails the build.
 
 ### File layout
 
@@ -86,7 +93,10 @@ stratify-site/
 │   ├── ci.md
 │   └── integrations.md
 ├── templates/
-│   └── docs.html               docs shell: head, nav, sidebar, article slot, footer
+│   ├── docs.html               docs shell: head, sidebar, article slot, anchors, prev/next
+│   ├── head-scripts.html       inline theme-flash guard, shared
+│   ├── nav.html                site header, shared
+│   └── foot.html               site footer, live region, script tag, shared
 ├── src/
 │   ├── index.html              landing page, hand-written
 │   ├── styles.css              tokens + landing styles
@@ -106,8 +116,8 @@ stratify-site/
 | Script | Does |
 |--------|------|
 | `npm run build` | Builds `dist/` |
-| `npm test` | Builds into a temp dir and runs the assertions below |
-| `npm run dev` | Builds, then serves `dist/` on port 8000 with Node's built-in static handler, rebuilding on demand |
+| `npm test` | Builds into a temp dir and runs the assertions below (`node --test test/*.mjs`; the shell expands the glob, so it works on Node 20 and 22 alike) |
+| `npm run dev` | Builds, then serves `dist/` on port 8000 with `python3 -m http.server`, matching how the other dynaum site repos preview locally |
 
 ### Deploy workflow
 
@@ -228,8 +238,8 @@ stated in the site repo README so future edits land in the right place.
 `npm test` runs `test/build.test.mjs`, which builds into a temp directory and asserts:
 
 1. Every file in `content/` produced a page at its expected path.
-2. `dist/index.html` exists and contains the hero headline.
-3. No `{{` token survives anywhere in `dist/`.
+2. `dist/index.html` exists, contains the hero headline, and carries the same injected header and footer as the docs pages.
+3. No `{{` token and no unfilled `<!--SLOT-->` marker survives anywhere in `dist/`.
 4. Every same-origin `href` resolves: a path href points at a real file in `dist/`, and a
    fragment href points at an element with a matching `id` on the same page. External
    `http(s)` hrefs and `mailto:` are skipped.

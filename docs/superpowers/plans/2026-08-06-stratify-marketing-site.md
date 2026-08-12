@@ -40,7 +40,10 @@
 |------|----------------|
 | `package.json` | Deps, scripts, engines |
 | `build.mjs` | The entire build: token substitution, markdown pipeline, nav, output |
-| `templates/docs.html` | Docs page shell (head, nav, sidebar slot, article slot, anchors slot, prev/next slot, footer) |
+| `templates/docs.html` | Docs page shell (head, sidebar slot, article slot, anchors slot, prev/next slot) |
+| `templates/head-scripts.html` | The inline theme-flash guard, shared by both page types |
+| `templates/nav.html` | The site header, shared by both page types |
+| `templates/foot.html` | The site footer, live region, and script tag, shared by both page types |
 | `content/install.md` | Install and quick start |
 | `content/analyses.md` | The six analyses plus `stratify.toml` config |
 | `content/ci.md` | GitHub Action and SARIF |
@@ -80,9 +83,8 @@ Produces a build that copies static files into an output directory, with a test 
   "engines": { "node": ">=20" },
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/",
-    "dev": "node build.mjs && node --run serve",
-    "serve": "node -e \"import('node:http').then(({default:h})=>import('node:fs').then(({default:fs})=>h.createServer((q,s)=>{let p='dist'+q.url.split('?')[0];if(p.endsWith('/'))p+='index.html';if(!fs.existsSync(p)&&fs.existsSync(p+'/index.html'))p+='/index.html';if(!fs.existsSync(p)){s.statusCode=404;return s.end('not found')}const t={'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml'}[p.slice(p.lastIndexOf('.'))]||'text/plain';s.setHeader('content-type',t);s.end(fs.readFileSync(p))}).listen(8000,()=>console.log('http://localhost:8000'))))\""
+    "test": "node --test test/*.mjs",
+    "dev": "node build.mjs && python3 -m http.server 8000 --directory dist"
   },
   "dependencies": {
     "marked": "^15.0.0",
@@ -287,7 +289,7 @@ In `build.mjs`, add these exports above `build()`:
 import { readFile, writeFile } from 'node:fs/promises';
 
 export function applyTokens(text, tokens) {
-  return text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+  return text.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
     if (!Object.hasOwn(tokens, key)) throw new Error(`unknown placeholder ${match}`);
     return String(tokens[key]);
   });
@@ -336,12 +338,87 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 Run: `npm test`
 Expected: PASS, 7 tests.
 
-- [ ] **Step 6: Verify the fallback path by hand**
+- [ ] **Step 6: Cover the fallback branches with tests**
+
+`resolveVersion()` carries the "telemetry never fails the build" guarantee, so its failure paths need automated coverage, not only a manual check. The helper also captures stderr, which keeps test output pristine while asserting the warning fired.
+
+Append to `test/build.test.mjs`:
+
+```js
+import { resolveVersion, FALLBACK_VERSION } from '../build.mjs';
+
+async function withStubbedLookup(fetchStub, fn) {
+  const realFetch = globalThis.fetch;
+  const realWrite = process.stderr.write;
+  const savedEnv = process.env.STRATIFY_VERSION;
+  const stderr = [];
+  delete process.env.STRATIFY_VERSION;
+  globalThis.fetch = fetchStub;
+  process.stderr.write = (chunk) => {
+    stderr.push(String(chunk));
+    return true;
+  };
+  try {
+    return { value: await fn(), stderr: stderr.join('') };
+  } finally {
+    globalThis.fetch = realFetch;
+    process.stderr.write = realWrite;
+    if (savedEnv === undefined) delete process.env.STRATIFY_VERSION;
+    else process.env.STRATIFY_VERSION = savedEnv;
+  }
+}
+
+test('falls back when the lookup rejects', async () => {
+  const { value, stderr } = await withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion);
+  assert.equal(value, FALLBACK_VERSION);
+  assert.match(stderr, /warn: version lookup failed \(offline\)/);
+});
+
+test('falls back on a non-ok response', async () => {
+  const { value, stderr } = await withStubbedLookup(() => Promise.resolve({ ok: false, status: 503 }), resolveVersion);
+  assert.equal(value, FALLBACK_VERSION);
+  assert.match(stderr, /503/);
+});
+
+test('falls back on a malformed tag_name', async () => {
+  const { value, stderr } = await withStubbedLookup(
+    () => Promise.resolve({ ok: true, json: () => Promise.resolve({ tag_name: 'latest' }) }),
+    resolveVersion,
+  );
+  assert.equal(value, FALLBACK_VERSION);
+  assert.match(stderr, /unexpected tag_name/);
+});
+
+test('STRATIFY_VERSION short-circuits the lookup', async () => {
+  const savedEnv = process.env.STRATIFY_VERSION;
+  const realFetch = globalThis.fetch;
+  process.env.STRATIFY_VERSION = 'v1.2.3';
+  globalThis.fetch = () => {
+    throw new Error('the network must not be touched when the env var is set');
+  };
+  try {
+    assert.equal(await resolveVersion(), 'v1.2.3');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (savedEnv === undefined) delete process.env.STRATIFY_VERSION;
+    else process.env.STRATIFY_VERSION = savedEnv;
+  }
+});
+
+test('a malformed token throws instead of surviving', () => {
+  assert.throws(() => applyTokens('{{ VERSION }}', { VERSION: 'v1.2.3' }), /VERSION/);
+});
+```
+
+Run: `npm test`
+Expected: PASS, 12 tests. Output stays clean — the helper swallows the warnings it asserts on.
+
+- [ ] **Step 7: Verify the fallback path by hand**
 
 Run: `STRATIFY_VERSION= node -e "import('./build.mjs').then(async m => { const f = globalThis.fetch; globalThis.fetch = () => Promise.reject(new Error('offline')); console.log(await m.resolveVersion()); globalThis.fetch = f; })"`
 Expected: prints a warning to stderr and `v0.4.0` to stdout. Exit code 0.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add build.mjs src/index.html test/build.test.mjs
@@ -360,7 +437,7 @@ Produces one HTML page per markdown file, rendered into the docs shell.
 
 **Interfaces:**
 - Consumes: `applyTokens` from Task 2.
-- Produces: `parseFrontmatter(raw)` returning `{ data, body }`, exported from `build.mjs`. `build()` now returns `pages` as an array of `{ slug, title, order, description, headings }` sorted by `order`, where `headings` is an array of `{ id, text }`. Output path per page: `<outDir>/docs/<slug>/index.html`.
+- Produces: `parseFrontmatter(raw)` returning `{ data, body }` and `injectPartials(html, partials)` returning a string, both exported from `build.mjs`. Partial slots are HTML comments: `<!--HEAD-SCRIPTS-->`, `<!--NAV-->`, `<!--FOOT-->`. Any page carrying a slot gets the partial; a page without the slot is left alone. `build()` now returns `pages` as an array of `{ slug, title, order, description, headings }` sorted by `order`, where `headings` is an array of `{ id, text }`. Output path per page: `<outDir>/docs/<slug>/index.html`.
 
 - [ ] **Step 1: Create the docs shell**
 
@@ -377,24 +454,11 @@ Produces one HTML page per markdown file, rendered into the docs shell.
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/docs.css">
-  <script>
-    (() => {
-      const saved = localStorage.getItem('stratify-theme');
-      const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    })();
-  </script>
+  <!--HEAD-SCRIPTS-->
 </head>
 <body class="docs">
   <a class="skip" href="#content">Skip to content</a>
-  <header class="topnav">
-    <a class="wordmark" href="/">Stratify</a>
-    <nav aria-label="Primary">
-      <a href="/docs/install/">Docs</a>
-      <a href="https://github.com/stratify-dev/stratify">GitHub</a>
-    </nav>
-    <button class="theme-toggle" type="button" aria-label="Switch theme">Theme</button>
-  </header>
+  <!--NAV-->
   <div class="docs-layout">
     <nav class="sidebar" aria-label="Documentation">
       <!--SIDEBAR-->
@@ -413,13 +477,48 @@ Produces one HTML page per markdown file, rendered into the docs shell.
       <!--ANCHORS-->
     </aside>
   </div>
-  <footer class="sitefoot">
-    <p>Stratify {{VERSION}} · MIT · <a href="https://github.com/stratify-dev/stratify">source</a> · built by <a href="https://dynaum.com">Elber Ribeiro</a></p>
-  </footer>
-  <div class="sr-live" aria-live="polite"></div>
-  <script src="/theme.js" defer></script>
+  <!--FOOT-->
 </body>
 </html>
+```
+
+- [ ] **Step 1b: Create the three shared partials**
+
+Both page types inject these, so the header, footer, and theme guard have one source each. The theme guard has to stay inline and synchronous, or the page paints in the wrong theme before the script loads.
+
+`templates/head-scripts.html`:
+
+```html
+<script>
+  (() => {
+    const saved = localStorage.getItem('stratify-theme');
+    const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  })();
+</script>
+```
+
+`templates/nav.html`:
+
+```html
+<header class="topnav">
+  <a class="wordmark" href="/">Stratify</a>
+  <nav aria-label="Primary">
+    <a href="/docs/install/">Docs</a>
+    <a href="https://github.com/stratify-dev/stratify">GitHub</a>
+  </nav>
+  <button class="theme-toggle" type="button" aria-label="Switch theme">Theme</button>
+</header>
+```
+
+`templates/foot.html`:
+
+```html
+<footer class="sitefoot">
+  <p>Stratify {{VERSION}} · MIT · <a href="https://github.com/stratify-dev/stratify">source</a> · built by <a href="https://dynaum.com">Elber Ribeiro</a> · &copy; {{YEAR}}</p>
+</footer>
+<div class="sr-live" aria-live="polite"></div>
+<script src="/theme.js" defer></script>
 ```
 
 - [ ] **Step 2: Create the first content file**
@@ -481,6 +580,22 @@ Add to `build.mjs`:
 import { readdir } from 'node:fs/promises';
 import { Marked, marked } from 'marked';
 
+const PARTIALS = ['head-scripts', 'nav', 'foot'];
+
+async function loadPartials() {
+  const entries = await Promise.all(
+    PARTIALS.map(async (name) => [name, (await readFile(path.join(ROOT, 'templates', `${name}.html`), 'utf8')).trim()]),
+  );
+  return Object.fromEntries(entries);
+}
+
+export function injectPartials(html, partials) {
+  return html
+    .replace('<!--HEAD-SCRIPTS-->', partials['head-scripts'])
+    .replace('<!--NAV-->', partials.nav)
+    .replace('<!--FOOT-->', partials.foot);
+}
+
 export function parseFrontmatter(raw) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw);
   if (!match) throw new Error('missing frontmatter');
@@ -516,7 +631,8 @@ function makeRenderer(headings) {
 Inside `build()`, replace the `return` with:
 
 ```js
-  const template = await readFile(path.join(ROOT, 'templates', 'docs.html'), 'utf8');
+  const partials = await loadPartials();
+  const template = injectPartials(await readFile(path.join(ROOT, 'templates', 'docs.html'), 'utf8'), partials);
   const files = (await readdir(path.join(ROOT, 'content'))).filter((f) => f.endsWith('.md')).sort();
 
   const parsed = [];
@@ -559,12 +675,22 @@ Inside `build()`, replace the `return` with:
   };
 ```
 
+Now give the landing page the same shell. In `build()`, delete the `index.html` write added in Task 2 and put this in its place, below the `loadPartials()` call (it needs `partials` in scope):
+
+```js
+  const indexPath = path.join(outDir, 'index.html');
+  const indexHtml = injectPartials(await readFile(indexPath, 'utf8'), partials);
+  await writeFile(indexPath, applyTokens(indexHtml, tokens));
+```
+
+Partials are injected before `applyTokens` runs, so `{{VERSION}}` inside `foot.html` resolves like any other token. The landing page has no slots until Task 9, and `String.replace` on a missing marker is a no-op, so this is inert until then.
+
 A fresh `Marked` instance per page matters. `marked.use()` accumulates extensions on the shared singleton, so a loop would stack one renderer per file. `escapeHtml` matters too: `{{TITLE}}` lands in raw HTML, and "Install & quick start" contains an ampersand.
 
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 9 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 7: Commit**
 
@@ -670,12 +796,36 @@ Append to `src/styles.css`:
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [ ] **Step 5: Adjust the Task 3 assertion that highlighting breaks**
+
+Task 3's test `renders each content file to its own docs page` asserts a literal command string appears in the page:
+
+```js
+  assert.match(html, /brew install stratify-dev\/tap\/stratify/);
+```
+
+Shiki wraps every token in its own `<span>`, so that contiguous string no longer exists in the markup even though the rendered text is unchanged. Do not loosen the regex with wildcards — that would let it match across unrelated content. Strip the tags and assert on the rendered text instead, which is what the assertion was always about.
+
+Add this helper near the top of `test/build.test.mjs`, beside the other helpers:
+
+```js
+const textOf = (html) => html.replace(/<[^>]+>/g, '');
+```
+
+Then change that one line to:
+
+```js
+  assert.match(textOf(html), /brew install stratify-dev\/tap\/stratify/);
+```
+
+Leave the other two assertions in that test alone. `<h1>Install &amp; quick start</h1>` and `<h2 id="install">Install</h2>` are markup assertions and must stay tag-sensitive.
+
+- [ ] **Step 6: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 11 tests.
+Expected: PASS, 16 tests.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add build.mjs src/styles.css test/build.test.mjs
@@ -830,7 +980,7 @@ In the page-writing loop, replace the three empty `.replace()` arguments:
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 14 tests.
+Expected: PASS, 19 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -854,11 +1004,15 @@ Produces a test failing the build on any broken same-origin link or unresolved t
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `test/build.test.mjs`:
+First extend the existing `node:fs/promises` import at the top of the file to include `stat`. Do not add a second import from the same module further down — one specifier, one import line:
 
 ```js
-import { stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
+```
 
+Then append to `test/build.test.mjs`:
+
+```js
 async function htmlFiles(dir) {
   const found = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -871,20 +1025,30 @@ async function htmlFiles(dir) {
 
 const exists = async (p) => stat(p).then(() => true, () => false);
 
-test('no unresolved tokens survive anywhere', async () => {
-  for (const file of await htmlFiles(out)) {
+const SLOTS = ['HEAD-SCRIPTS', 'NAV', 'FOOT', 'SIDEBAR', 'CONTENT', 'ANCHORS', 'PREVNEXT'];
+
+test('no unresolved tokens or slots survive anywhere', async () => {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
     const text = await readFile(file, 'utf8');
-    assert.ok(!text.includes('{{'), `unresolved token in ${path.relative(out, file)}`);
+    const rel = path.relative(out, file);
+    assert.ok(!text.includes('{{'), `unresolved token in ${rel}`);
+    for (const slot of SLOTS) {
+      assert.ok(!text.includes(`<!--${slot}-->`), `unfilled ${slot} slot in ${rel}`);
+    }
   }
 });
 
-test('every same-origin link resolves', async () => {
+test('every same-origin link and asset reference resolves', async () => {
   const problems = [];
-  for (const file of await htmlFiles(out)) {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
     const html = await readFile(file, 'utf8');
     const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
-    for (const [, href] of html.matchAll(/\shref="([^"]+)"/g)) {
-      if (/^(https?:|mailto:|tel:)/.test(href)) continue;
+    for (const [, href] of html.matchAll(/\s(?:href|src)="([^"]+)"/g)) {
+      if (/^(https?:|mailto:|tel:|data:)/.test(href)) continue;
       if (href.startsWith('#')) {
         if (href !== '#' && !ids.has(href.slice(1))) problems.push(`${path.relative(out, file)} -> ${href}`);
         continue;
@@ -900,10 +1064,12 @@ test('every same-origin link resolves', async () => {
 });
 ```
 
+Scanning `src` as well as `href` is deliberate. A stylesheet is referenced by `href`, but a script is referenced by `src`, and a broken `<script src>` ships a page whose behavior silently dies. `data:` joins the skip list because inline data URIs have no file to resolve.
+
 - [ ] **Step 2: Run the test to see what breaks**
 
 Run: `npm test`
-Expected: FAIL. `docs.css` and `theme.js` are referenced by `templates/docs.html` but do not exist yet.
+Expected: FAIL, naming both `/docs.css` and `/theme.js`. `templates/docs.html` references both, and neither exists yet.
 
 - [ ] **Step 3: Create the two missing files**
 
@@ -922,9 +1088,43 @@ Expected: FAIL. `docs.css` and `theme.js` are referenced by `templates/docs.html
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 16 tests.
+Expected: PASS, 21 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Tighten two loose navigation assertions from Task 5**
+
+Two assertions written in Task 5 use a regex alternation whose first branch matches if the attribute appears anywhere on the page. A bug marking the wrong page current, or pointing `rel="next"` at the wrong href, would still pass. Replace them with assertions naming the exact link.
+
+In the test `every docs page carries the full sidebar`, replace this line:
+
+```js
+    assert.match(html, new RegExp(`aria-current="page"[^>]*>|href="/docs/${slug}/" aria-current="page"`));
+```
+
+with:
+
+```js
+    const marked = [...html.matchAll(/<a href="\/docs\/([^"/]+)\/" aria-current="page">/g)].map((m) => m[1]);
+    assert.deepEqual(marked, [slug], `${slug} should be the only page marked current`);
+```
+
+In the test `links previous and next pages`, replace the two `assert.match` calls that use alternation with assertions naming the exact target. The page order is install, analyses, ci, integrations:
+
+```js
+  assert.match(first, /<a class="next" rel="next" href="\/docs\/analyses\/">/);
+```
+
+```js
+  assert.match(last, /<a class="prev" rel="prev" href="\/docs\/ci\/">/);
+```
+
+Leave the two `assert.ok(!...)` boundary checks in that test as they are — they already assert the right thing.
+
+- [ ] **Step 6: Run the tests again**
+
+Run: `npm test`
+Expected: PASS, 21 tests. The count is unchanged, since this step tightens existing assertions rather than adding new ones.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/docs.css src/theme.js test/build.test.mjs
@@ -956,13 +1156,39 @@ test('theme.js stays under the 3 KB budget', async () => {
   assert.match(js, /stratify-theme/);
 });
 
-test('both palettes are defined', async () => {
+test('both palettes are defined and actually differ', async () => {
   const css = await readFile(path.join(out, 'styles.css'), 'utf8');
   for (const token of ['--bg', '--fg', '--accent', '--sev-info', '--sev-warn', '--sev-error']) {
     assert.match(css, new RegExp(`${token}:`), `${token} is not defined`);
   }
   assert.match(css, /\[data-theme='dark'\]|\[data-theme="dark"\]/);
   assert.match(css, /prefers-reduced-motion/);
+
+  // A palette that resolves to the same value in both themes would pass a
+  // name-only check while shipping one theme twice.
+  const valueOf = (block, token) => new RegExp(`${token}:\\s*([^;]+);`).exec(block)?.[1]?.trim();
+  const light = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  const dark = /\[data-theme=['"]dark['"]\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  for (const token of ['--bg', '--fg', '--accent']) {
+    const l = valueOf(light, token);
+    const d = valueOf(dark, token);
+    assert.ok(l && d, `${token} missing from one of the two palettes`);
+    assert.notEqual(l, d, `${token} is identical in both themes`);
+  }
+});
+
+test('revealed content is never hidden from readers without JavaScript', async () => {
+  const css = await readFile(path.join(out, 'styles.css'), 'utf8');
+  const hidingRules = [...css.matchAll(/([^{}]*\[data-reveal\][^{}]*)\{([^}]*)\}/g)]
+    .filter((m) => /opacity:\s*0/.test(m[2]))
+    .map((m) => m[1].trim());
+  assert.ok(hidingRules.length > 0, 'expected a rule hiding revealed content before it animates in');
+  for (const selector of hidingRules) {
+    assert.match(selector, /\.js\s/, `"${selector}" hides content without requiring the .js marker`);
+  }
+
+  const page = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  assert.match(page, /classList\.add\('js'\)/, 'the inline head script must set the .js marker before first paint');
 });
 ```
 
@@ -1057,17 +1283,40 @@ code, pre { font-family: var(--mono); }
 [data-reveal] { opacity: 1; }
 
 @media (prefers-reduced-motion: no-preference) {
-  [data-reveal] {
+  .js [data-reveal] {
     opacity: 0;
     transform: translateY(12px);
     transition: opacity 0.5s ease, transform 0.5s ease;
     transition-delay: calc(var(--reveal-index, 0) * 70ms);
   }
-  [data-reveal].is-visible {
+  .js [data-reveal].is-visible {
     opacity: 1;
     transform: none;
   }
 }
+```
+
+Two guards protect readers here, and both matter.
+
+The base `[data-reveal] { opacity: 1 }` rule sits outside the media query, so a reader who turned on reduce-motion never enters the hidden state at all.
+
+The `.js` prefix covers the other case. Without it, a reader whose JavaScript never runs — blocked, failed to load, disabled — and who has *not* enabled reduce-motion would match the `opacity: 0` rule with nothing left to add `.is-visible`, leaving that content invisible forever. Gating on a class that only JavaScript can set means no-JS readers never reach the hidden state either. The marker is set synchronously in the next step, before first paint, so there is no flash.
+
+- [ ] **Step 3b: Set the `.js` marker before first paint**
+
+The CSS above only hides content for readers whose JavaScript runs. Something has to say so, synchronously, before the first paint. `templates/head-scripts.html` already runs inline in `<head>` for exactly this reason, so add one line to it rather than creating a second inline script.
+
+Edit `templates/head-scripts.html` to read:
+
+```html
+<script>
+  (() => {
+    document.documentElement.classList.add('js');
+    const saved = localStorage.getItem('stratify-theme');
+    const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  })();
+</script>
 ```
 
 - [ ] **Step 4: Write the client script**
@@ -1121,7 +1370,7 @@ if (reveals.length && 'IntersectionObserver' in window) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 18 tests.
+Expected: PASS, 24 tests.
 
 - [ ] **Step 6: Check it in a browser**
 
@@ -1175,7 +1424,7 @@ Then one `h2` per analysis, in this exact order and wording so the slugs match: 
 - Complexity: cyclomatic complexity, severity ranking.
 - Churn hotspots: complexity crossed with git history, the complexity floor, and why hotspots emit at `info` severity so they advise rather than fail a gate.
 - Dependency cycles: file-level and package-level, with Go packages and Python `__init__.py` handled as real package edges.
-- Layer boundaries: needs a `stratify.toml`. Fold the whole config story in here as `h3` subsections: `Presets` (`rails`, `layered`, and auto-detection from `app/controllers/`, `pom.xml`, or `build.gradle`), and `Custom layers and rules` (a full `stratify.toml` example with `preset`, `[layers]`, and `[[forbid]]`, plus the merge rule: your layer keys replace preset keys of the same name, your `[[forbid]]` rules add to the preset's).
+- Layer boundaries: needs a `stratify.toml`. Fold the whole config story in here as `h3` subsections: `Presets` (`rails`, `layered`, and auto-detection). State the detection rule exactly as `crates/stratify-cli/src/run.rs` implements it: the `rails` preset applies when the root holds an `app/controllers/` directory **or** a `config/routes.rb` file; the `layered` preset applies when it holds a `pom.xml` **or** a `build.gradle`; anything else gets no boundary checks. The engine README omits `config/routes.rb`, so the source governs here, and `Custom layers and rules` (a full `stratify.toml` example with `preset`, `[layers]`, and `[[forbid]]`, plus the merge rule: your layer keys replace preset keys of the same name, your `[[forbid]]` rules add to the preset's).
 
 Add a `## Confidence` section before the per-analysis sections explaining the confidence levels and how they map onto severity.
 
@@ -1217,7 +1466,7 @@ test('docs pages expose every anchor the landing page links to', async () => {
 - [ ] **Step 6: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 19 tests. These anchors are the contract the landing page links against in the next task.
+Expected: PASS, 25 tests. These anchors are the contract the landing page links against in the next task.
 
 - [ ] **Step 7: Read the pages in a browser**
 
@@ -1256,6 +1505,16 @@ test('landing page has every section', async () => {
   }
   assert.match(html, /One binary\. Six languages\. Six analyses\./);
   assert.match(html, /data-copy/);
+});
+
+test('the landing page and the docs shell share one header and footer', async () => {
+  const landing = await readFile(path.join(out, 'index.html'), 'utf8');
+  const docs = await readFile(path.join(out, 'docs', 'install', 'index.html'), 'utf8');
+  for (const page of [landing, docs]) {
+    assert.match(page, /<header class="topnav">/);
+    assert.match(page, /<footer class="sitefoot">/);
+    assert.match(page, /stratify-theme/);
+  }
 });
 
 test('the strata graphic is accessible', async () => {
@@ -1297,25 +1556,12 @@ Replace `src/index.html` entirely. Head and opening sections:
   <meta property="og:url" content="https://stratify.dynaum.com/">
   <meta property="og:type" content="website">
   <link rel="stylesheet" href="/styles.css">
-  <script>
-    (() => {
-      const saved = localStorage.getItem('stratify-theme');
-      const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    })();
-  </script>
+  <!--HEAD-SCRIPTS-->
 </head>
 <body class="landing">
   <a class="skip" href="#main">Skip to content</a>
 
-  <header class="topnav">
-    <a class="wordmark" href="/">Stratify</a>
-    <nav aria-label="Primary">
-      <a href="/docs/install/">Docs</a>
-      <a href="https://github.com/stratify-dev/stratify">GitHub</a>
-    </nav>
-    <button class="theme-toggle" type="button" aria-label="Switch theme">Theme</button>
-  </header>
+  <!--NAV-->
 
   <main id="main">
     <section class="hero">
@@ -1504,11 +1750,7 @@ stratify check .</code></pre>
     </section>
   </main>
 
-  <footer class="sitefoot">
-    <p>Stratify {{VERSION}} · MIT · <a href="https://github.com/stratify-dev/stratify">source</a> · built by <a href="https://dynaum.com">Elber Ribeiro</a> · &copy; {{YEAR}}</p>
-  </footer>
-  <div class="sr-live" aria-live="polite"></div>
-  <script src="/theme.js" defer></script>
+  <!--FOOT-->
 </body>
 </html>
 ```
@@ -1516,7 +1758,7 @@ stratify check .</code></pre>
 - [ ] **Step 7: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS, 22 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
+Expected: PASS, 29 tests. The link checker resolves every `/docs/...#anchor` on this page against the headings written in Task 8.
 
 - [ ] **Step 8: Commit**
 
@@ -1716,6 +1958,104 @@ Replace `src/docs.css`:
 }
 ```
 
+- [ ] **Step 3b: Carry over three items from the Task 9 review**
+
+**Replace the em dashes in both page titles.** House style rules them out, and the footer already uses a middle dot as its separator, so match that.
+
+`src/index.html`:
+
+```html
+  <title>Stratify · one code quality gate for every language in your repo</title>
+```
+
+`templates/docs.html`:
+
+```html
+  <title>{{TITLE}} · Stratify docs</title>
+```
+
+**Fix a test that passes for the wrong reason.** In `test/build.test.mjs`, the assertion
+
+```js
+  assert.match(html, /One binary\. Six languages\. Six analyses\./);
+```
+
+never matches the `<h1>` it appears to check. The heading carries a `<br>` between the second and third sentence, so the literal-space match fails there and succeeds instead against the `og:description` meta tag, which happens to contain the same phrase. Delete the tag and the test still passes. Replace it with an assertion on the heading itself:
+
+```js
+  const h1 = /<h1>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? '';
+  const h1Text = h1.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.equal(h1Text, 'One binary. Six languages. Six analyses.');
+```
+
+Replacing tags with a space rather than nothing matters — otherwise `<br>` collapses "languages." and "Six" into one word.
+
+**Guard copy targets and id uniqueness.** Every `[data-copy]` value names another element by id. Nothing currently catches a typo there, and a dangling selector produces a button that silently does nothing. Duplicate ids break `aria-labelledby` and the fragment checker's assumptions at the same time. Append:
+
+```js
+test('every copy button targets a real element, and ids are unique', async () => {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
+    const html = await readFile(file, 'utf8');
+    const rel = path.relative(out, file);
+
+    const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+    const duplicates = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    assert.deepEqual(duplicates, [], `duplicate id(s) in ${rel}`);
+
+    for (const [, selector] of html.matchAll(/\sdata-copy="([^"]+)"/g)) {
+      assert.match(selector, /^#[\w-]+$/, `${rel}: data-copy="${selector}" is not a simple id selector`);
+      assert.ok(ids.includes(selector.slice(1)), `${rel}: data-copy="${selector}" points at no element`);
+    }
+  }
+});
+```
+
+- [ ] **Step 3c: Scroll docs tables in a wrapper, not by changing their display**
+
+A wide table in a docs page forces the whole page to scroll sideways at narrow widths, which violates a hard constraint. The obvious CSS-only fix, `display: block` on the table, works visually but is wrong: implicit ARIA roles for table elements are computed from the CSS `display` value, so moving a `<table>` off `display: table` drops its `role="table"` and the row and cell semantics a screen reader depends on. The reader stops hearing a table and starts hearing a run-on list.
+
+The landing page already does this correctly: `.matrix-scroll` wraps `<table class="matrix">`, and the table keeps `display: table`. Docs tables come from markdown, so they need the same wrapper generated at build time.
+
+In `build.mjs`, wrap rendered tables right after `md.parse()`. marked emits a bare `<table>` with no attributes and markdown has no nested tables, so a string wrap is safe and cheap:
+
+```js
+// Tables need a scroll container, and it has to be a wrapper rather than
+// `display: block` on the table itself — changing a table's display drops its
+// implicit ARIA role and the row/cell semantics with it.
+const wrapTables = (html) =>
+  html.replaceAll('<table>', '<div class="table-scroll"><table>').replaceAll('</table>', '</table></div>');
+```
+
+Apply it where the page HTML is produced: `const html = wrapTables(md.parse(applyTokens(body, tokens)));`
+
+In `src/docs.css`, remove `display: block; overflow-x: auto;` from the `.docs article table` rule, returning it to `border-collapse: collapse; width: 100%; font-size: 0.9rem;`, and add the wrapper rule beside it:
+
+```css
+.docs .table-scroll { overflow-x: auto; max-width: 100%; }
+```
+
+Then lock it in. Append to `test/build.test.mjs`:
+
+```js
+test('wide docs tables scroll in a wrapper, keeping their table semantics', async () => {
+  const css = await readFile(path.join(out, 'docs.css'), 'utf8');
+  for (const [, selector, body] of css.matchAll(/([^{}]*\btable\b[^{}]*)\{([^}]*)\}/g)) {
+    assert.ok(
+      !/display:\s*block/.test(body),
+      `"${selector.trim()}" sets display:block on a table, which drops its implicit ARIA role`,
+    );
+  }
+
+  const page = await readFile(path.join(out, 'docs', 'analyses', 'index.html'), 'utf8');
+  const tables = (page.match(/<table[\s>]/g) ?? []).length;
+  const wrapped = (page.match(/<div class="table-scroll"><table/g) ?? []).length;
+  assert.ok(tables > 0, 'expected at least one table on the analyses page');
+  assert.equal(wrapped, tables, 'every docs table must sit inside a .table-scroll wrapper');
+});
+```
+
 - [ ] **Step 4: Add the page-weight and no-third-party tests**
 
 Append to `test/build.test.mjs`:
@@ -1730,12 +2070,30 @@ test('the landing page stays under the 150 KB budget', async () => {
 });
 
 test('nothing loads from a third-party host', async () => {
-  for (const file of await htmlFiles(out)) {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+
+  // Only rels that actually fetch a subresource count. rel="canonical" and
+  // friends are metadata: they name a URL, they never load it.
+  const FETCHING_RELS = new Set([
+    'stylesheet', 'icon', 'apple-touch-icon', 'manifest',
+    'preload', 'prefetch', 'preconnect', 'dns-prefetch',
+  ]);
+
+  for (const file of files) {
     const html = await readFile(file, 'utf8');
-    for (const [, url] of html.matchAll(/\s(?:src|href)="(https?:\/\/[^"]+)"/g)) {
-      const tag = html.slice(Math.max(0, html.indexOf(url) - 200), html.indexOf(url));
-      const loads = /<(script|link)\b[^>]*$/.test(tag);
-      assert.ok(!loads, `${path.relative(out, file)} loads ${url} from a third party`);
+    const rel = path.relative(out, file);
+
+    for (const [, src] of html.matchAll(/<script\b[^>]*\ssrc="(https?:\/\/[^"]+)"/g)) {
+      assert.fail(`${rel} loads a script from ${src}`);
+    }
+
+    for (const [tag] of html.matchAll(/<link\b[^>]*>/g)) {
+      const href = /\shref="(https?:\/\/[^"]+)"/.exec(tag)?.[1];
+      if (!href) continue;
+      const linkRel = (/\srel="([^"]+)"/.exec(tag)?.[1] ?? '').toLowerCase();
+      const fetches = linkRel.split(/\s+/).some((r) => FETCHING_RELS.has(r));
+      assert.ok(!fetches, `${rel} loads ${href} from a third party via rel="${linkRel}"`);
     }
   }
 });
@@ -1744,7 +2102,7 @@ test('nothing loads from a third-party host', async () => {
 - [ ] **Step 5: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 24 tests. Only the two new assertions changed, so this confirms the styles broke nothing else.
+Expected: PASS, 33 tests. Four of those are new in this task and one existing assertion was corrected; the styles themselves change no test outcome.
 
 - [ ] **Step 6: Review both themes in a browser**
 
@@ -1797,7 +2155,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -1829,6 +2187,8 @@ jobs:
 
 The weekly cron refreshes `{{VERSION}}` after an engine release with no site commit.
 
+`cancel-in-progress` is `false` on purpose, matching GitHub's own Pages starter workflow. A production deploy should finish rather than be killed by whatever triggered next. With `true`, a push landing near the Monday cron would cancel an in-flight `deploy-pages` run and can leave the Pages deployment record stuck.
+
 - [ ] **Step 2: Write the repo README**
 
 `README.md`:
@@ -1848,7 +2208,7 @@ npm test        # builds into a temp dir and checks structure, tokens, and links
 
 ## How it builds
 
-`build.mjs` copies `src/` and `assets/` into `dist/`, substitutes `{{VERSION}}`
+`build.mjs` copies `src/`, `assets/`, and the root `CNAME` into `dist/`, substitutes `{{VERSION}}`
 with the latest Stratify release tag, renders every `content/*.md` file through
 marked with build-time shiki highlighting, and wraps each one in
 `templates/docs.html`.
@@ -1906,31 +2266,35 @@ Produces the live site at its final domain.
 - Consumes: everything above.
 - Produces: a live site at https://stratify.dynaum.com.
 
-- [ ] **Step 1: Create the GitHub repo and push**
+**Ordering matters here.** Pushing first fires the workflow immediately, and `actions/configure-pages` fails with "Get Pages site failed" when the repo's Pages source is not already set to GitHub Actions. Create the repo, configure Pages, then push.
+
+- [ ] **Step 1: Create the repo without pushing**
 
 ```bash
 cd ~/dev/stratify-site
 git branch -M main
 gh repo create stratify-dev/stratify-site --public --source=. --remote=origin \
-  --description "Marketing site and docs for Stratify — stratify.dynaum.com"
-git push -u origin main
+  --description "Marketing site and docs for Stratify - stratify.dynaum.com"
 ```
 
-- [ ] **Step 2: Enable Pages and wait for the first deploy**
+`--source=.` sets the remote without pushing. Confirm with `git remote -v` and `git log origin/main` failing, since nothing is pushed yet.
+
+- [ ] **Step 2: Enable Pages and set the custom domain, before any push**
 
 ```bash
 gh api -X POST repos/stratify-dev/stratify-site/pages -f build_type=workflow || \
   gh api -X PUT repos/stratify-dev/stratify-site/pages -f build_type=workflow
-gh run watch --repo stratify-dev/stratify-site
-```
-Expected: the Deploy workflow finishes green.
-
-- [ ] **Step 3: Set the custom domain**
-
-```bash
 gh api -X PUT repos/stratify-dev/stratify-site/pages -f cname=stratify.dynaum.com
 ```
-Expected: no error. The `CNAME` file in `dist/` already carries the domain, so the setting sticks across deploys.
+Expected: no error from either call. The `CNAME` file in `dist/` also carries the domain, so the setting survives every deploy.
+
+- [ ] **Step 3: Push, which triggers the first deploy**
+
+```bash
+git push -u origin main
+gh run watch --repo stratify-dev/stratify-site
+```
+Expected: the Deploy workflow finishes green. If `configure-pages` still errors, Step 2 did not take — fix that before re-running rather than retrying the push.
 
 - [ ] **Step 4: Add the DNS record**
 
@@ -2001,3 +2365,10 @@ Open https://stratify.dynaum.com and confirm:
 - [ ] **Step 10: Refresh the Obsidian note**
 
 Update the `stratify` note in the `web` vault: regenerate the `<!-- sync:auto -->` block and the `date` field only, adding the live URL. Leave the prose sections untouched.
+
+
+---
+
+## Appendix: why the two link tests assert a non-empty file list
+
+Both tests end in `assert.deepEqual(problems, [])`. If `htmlFiles()` ever returned an empty array — a renamed output directory, a build that silently wrote nothing — that assertion passes while checking nothing, and the safety net reports green on a broken site. Test ordering happens to protect against it today, since earlier tests read concrete files out of the same fixture, but that is incidental rather than guaranteed. The explicit length check makes the guarantee belong to the test itself.
