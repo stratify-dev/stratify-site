@@ -2012,6 +2012,50 @@ test('every copy button targets a real element, and ids are unique', async () =>
 });
 ```
 
+- [ ] **Step 3c: Scroll docs tables in a wrapper, not by changing their display**
+
+A wide table in a docs page forces the whole page to scroll sideways at narrow widths, which violates a hard constraint. The obvious CSS-only fix, `display: block` on the table, works visually but is wrong: implicit ARIA roles for table elements are computed from the CSS `display` value, so moving a `<table>` off `display: table` drops its `role="table"` and the row and cell semantics a screen reader depends on. The reader stops hearing a table and starts hearing a run-on list.
+
+The landing page already does this correctly: `.matrix-scroll` wraps `<table class="matrix">`, and the table keeps `display: table`. Docs tables come from markdown, so they need the same wrapper generated at build time.
+
+In `build.mjs`, wrap rendered tables right after `md.parse()`. marked emits a bare `<table>` with no attributes and markdown has no nested tables, so a string wrap is safe and cheap:
+
+```js
+// Tables need a scroll container, and it has to be a wrapper rather than
+// `display: block` on the table itself — changing a table's display drops its
+// implicit ARIA role and the row/cell semantics with it.
+const wrapTables = (html) =>
+  html.replaceAll('<table>', '<div class="table-scroll"><table>').replaceAll('</table>', '</table></div>');
+```
+
+Apply it where the page HTML is produced: `const html = wrapTables(md.parse(applyTokens(body, tokens)));`
+
+In `src/docs.css`, remove `display: block; overflow-x: auto;` from the `.docs article table` rule, returning it to `border-collapse: collapse; width: 100%; font-size: 0.9rem;`, and add the wrapper rule beside it:
+
+```css
+.docs .table-scroll { overflow-x: auto; max-width: 100%; }
+```
+
+Then lock it in. Append to `test/build.test.mjs`:
+
+```js
+test('wide docs tables scroll in a wrapper, keeping their table semantics', async () => {
+  const css = await readFile(path.join(out, 'docs.css'), 'utf8');
+  for (const [, selector, body] of css.matchAll(/([^{}]*\btable\b[^{}]*)\{([^}]*)\}/g)) {
+    assert.ok(
+      !/display:\s*block/.test(body),
+      `"${selector.trim()}" sets display:block on a table, which drops its implicit ARIA role`,
+    );
+  }
+
+  const page = await readFile(path.join(out, 'docs', 'analyses', 'index.html'), 'utf8');
+  const tables = (page.match(/<table[\s>]/g) ?? []).length;
+  const wrapped = (page.match(/<div class="table-scroll"><table/g) ?? []).length;
+  assert.ok(tables > 0, 'expected at least one table on the analyses page');
+  assert.equal(wrapped, tables, 'every docs table must sit inside a .table-scroll wrapper');
+});
+```
+
 - [ ] **Step 4: Add the page-weight and no-third-party tests**
 
 Append to `test/build.test.mjs`:
@@ -2058,7 +2102,7 @@ test('nothing loads from a third-party host', async () => {
 - [ ] **Step 5: Run the tests**
 
 Run: `npm test`
-Expected: PASS, 32 tests. Three of those are new in this task and one existing assertion was corrected; the styles themselves change no test outcome.
+Expected: PASS, 33 tests. Four of those are new in this task and one existing assertion was corrected; the styles themselves change no test outcome.
 
 - [ ] **Step 6: Review both themes in a browser**
 
