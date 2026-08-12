@@ -2266,31 +2266,35 @@ Produces the live site at its final domain.
 - Consumes: everything above.
 - Produces: a live site at https://stratify.dynaum.com.
 
-- [ ] **Step 1: Create the GitHub repo and push**
+**Ordering matters here.** Pushing first fires the workflow immediately, and `actions/configure-pages` fails with "Get Pages site failed" when the repo's Pages source is not already set to GitHub Actions. Create the repo, configure Pages, then push.
+
+- [ ] **Step 1: Create the repo without pushing**
 
 ```bash
 cd ~/dev/stratify-site
 git branch -M main
 gh repo create stratify-dev/stratify-site --public --source=. --remote=origin \
-  --description "Marketing site and docs for Stratify — stratify.dynaum.com"
-git push -u origin main
+  --description "Marketing site and docs for Stratify - stratify.dynaum.com"
 ```
 
-- [ ] **Step 2: Enable Pages and wait for the first deploy**
+`--source=.` sets the remote without pushing. Confirm with `git remote -v` and `git log origin/main` failing, since nothing is pushed yet.
+
+- [ ] **Step 2: Enable Pages and set the custom domain, before any push**
 
 ```bash
 gh api -X POST repos/stratify-dev/stratify-site/pages -f build_type=workflow || \
   gh api -X PUT repos/stratify-dev/stratify-site/pages -f build_type=workflow
-gh run watch --repo stratify-dev/stratify-site
-```
-Expected: the Deploy workflow finishes green.
-
-- [ ] **Step 3: Set the custom domain**
-
-```bash
 gh api -X PUT repos/stratify-dev/stratify-site/pages -f cname=stratify.dynaum.com
 ```
-Expected: no error. The `CNAME` file in `dist/` already carries the domain, so the setting sticks across deploys.
+Expected: no error from either call. The `CNAME` file in `dist/` also carries the domain, so the setting survives every deploy.
+
+- [ ] **Step 3: Push, which triggers the first deploy**
+
+```bash
+git push -u origin main
+gh run watch --repo stratify-dev/stratify-site
+```
+Expected: the Deploy workflow finishes green. If `configure-pages` still errors, Step 2 did not take — fix that before re-running rather than retrying the push.
 
 - [ ] **Step 4: Add the DNS record**
 
