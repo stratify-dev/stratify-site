@@ -16,7 +16,9 @@ before(async () => {
 
 test('copies the landing page', async () => {
   const html = await readFile(path.join(out, 'index.html'), 'utf8');
-  assert.match(html, /One binary\. Six languages\. Six analyses\./);
+  const h1 = /<h1>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? '';
+  const h1Text = h1.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.equal(h1Text, 'One binary. Six languages. Six analyses.');
 });
 
 test('copies the stylesheet', async () => {
@@ -276,7 +278,6 @@ test('landing page has every section', async () => {
   for (const id of ['analyses', 'languages', 'surfaces', 'install']) {
     assert.match(html, new RegExp(`id="${id}"`), `section ${id} is missing`);
   }
-  assert.match(html, /One binary\. Six languages\. Six analyses\./);
   assert.match(html, /data-copy/);
 });
 
@@ -301,5 +302,60 @@ test('the language matrix names all six languages', async () => {
   const html = await readFile(path.join(out, 'index.html'), 'utf8');
   for (const lang of ['Java', 'Ruby', 'TypeScript', 'Python', 'Go', 'Rust']) {
     assert.match(html, new RegExp(`>${lang}<`), `${lang} missing from the page`);
+  }
+});
+
+test('every copy button targets a real element, and ids are unique', async () => {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+  for (const file of files) {
+    const html = await readFile(file, 'utf8');
+    const rel = path.relative(out, file);
+
+    const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+    const duplicates = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    assert.deepEqual(duplicates, [], `duplicate id(s) in ${rel}`);
+
+    for (const [, selector] of html.matchAll(/\sdata-copy="([^"]+)"/g)) {
+      assert.match(selector, /^#[\w-]+$/, `${rel}: data-copy="${selector}" is not a simple id selector`);
+      assert.ok(ids.includes(selector.slice(1)), `${rel}: data-copy="${selector}" points at no element`);
+    }
+  }
+});
+
+test('the landing page stays under the 150 KB budget', async () => {
+  let total = 0;
+  for (const file of ['index.html', 'styles.css', 'theme.js', 'assets/favicon.svg']) {
+    total += Buffer.byteLength(await readFile(path.join(out, file)));
+  }
+  assert.ok(total < 150 * 1024, `landing page weighs ${Math.round(total / 1024)} KB`);
+});
+
+test('nothing loads from a third-party host', async () => {
+  const files = await htmlFiles(out);
+  assert.ok(files.length > 0, 'no HTML files were built, so this test would pass vacuously');
+
+  // Only rels that actually fetch a subresource count. rel="canonical" and
+  // friends are metadata: they name a URL, they never load it.
+  const FETCHING_RELS = new Set([
+    'stylesheet', 'icon', 'apple-touch-icon', 'manifest',
+    'preload', 'prefetch', 'preconnect', 'dns-prefetch',
+  ]);
+
+  for (const file of files) {
+    const html = await readFile(file, 'utf8');
+    const rel = path.relative(out, file);
+
+    for (const [, src] of html.matchAll(/<script\b[^>]*\ssrc="(https?:\/\/[^"]+)"/g)) {
+      assert.fail(`${rel} loads a script from ${src}`);
+    }
+
+    for (const [tag] of html.matchAll(/<link\b[^>]*>/g)) {
+      const href = /\shref="(https?:\/\/[^"]+)"/.exec(tag)?.[1];
+      if (!href) continue;
+      const linkRel = (/\srel="([^"]+)"/.exec(tag)?.[1] ?? '').toLowerCase();
+      const fetches = linkRel.split(/\s+/).some((r) => FETCHING_RELS.has(r));
+      assert.ok(!fetches, `${rel} loads ${href} from a third party via rel="${linkRel}"`);
+    }
   }
 });
