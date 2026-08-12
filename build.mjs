@@ -17,6 +17,12 @@ function getHighlighter() {
   return highlighterPromise;
 }
 
+// Tables need a scroll container, and it has to be a wrapper rather than
+// `display: block` on the table itself — changing a table's display drops its
+// implicit ARIA role and the row/cell semantics with it.
+const wrapTables = (html) =>
+  html.replaceAll('<table>', '<div class="table-scroll"><table>').replaceAll('</table>', '</table></div>');
+
 async function loadPartials() {
   const entries = await Promise.all(
     PARTIALS.map(async (name) => [name, (await readFile(path.join(ROOT, 'templates', `${name}.html`), 'utf8')).trim()]),
@@ -142,7 +148,7 @@ export async function build({ outDir = path.join(ROOT, 'dist'), version = FALLBA
     const { data, body } = parseFrontmatter(raw);
     const headings = [];
     const md = new Marked({ renderer: makeRenderer(headings, highlighter) });
-    const html = md.parse(applyTokens(body, tokens));
+    const html = wrapTables(md.parse(applyTokens(body, tokens)));
     parsed.push({
       slug: file.replace(/\.md$/, ''),
       title: data.title,

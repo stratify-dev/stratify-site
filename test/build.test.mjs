@@ -359,3 +359,19 @@ test('nothing loads from a third-party host', async () => {
     }
   }
 });
+
+test('wide docs tables scroll in a wrapper, keeping their table semantics', async () => {
+  const css = await readFile(path.join(out, 'docs.css'), 'utf8');
+  for (const [, selector, body] of css.matchAll(/([^{}]*\btable\b[^{}]*)\{([^}]*)\}/g)) {
+    assert.ok(
+      !/display:\s*block/.test(body),
+      `"${selector.trim()}" sets display:block on a table, which drops its implicit ARIA role`,
+    );
+  }
+
+  const page = await readFile(path.join(out, 'docs', 'analyses', 'index.html'), 'utf8');
+  const tables = (page.match(/<table[\s>]/g) ?? []).length;
+  const wrapped = (page.match(/<div class="table-scroll"><table/g) ?? []).length;
+  assert.ok(tables > 0, 'expected at least one table on the analyses page');
+  assert.equal(wrapped, tables, 'every docs table must sit inside a .table-scroll wrapper');
+});
