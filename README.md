@@ -12,7 +12,7 @@ npm test        # builds into a temp dir and checks structure, tokens, and links
 
 ## How it builds
 
-`build.mjs` copies `src/` and `assets/` into `dist/`, substitutes `{{VERSION}}`
+`build.mjs` copies `src/`, `assets/`, and the root `CNAME` into `dist/`, substitutes `{{VERSION}}`
 with the latest Stratify release tag, renders every `content/*.md` file through
 marked with build-time shiki highlighting, and wraps each one in
 `templates/docs.html`.
