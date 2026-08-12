@@ -2155,7 +2155,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -2187,6 +2187,8 @@ jobs:
 
 The weekly cron refreshes `{{VERSION}}` after an engine release with no site commit.
 
+`cancel-in-progress` is `false` on purpose, matching GitHub's own Pages starter workflow. A production deploy should finish rather than be killed by whatever triggered next. With `true`, a push landing near the Monday cron would cancel an in-flight `deploy-pages` run and can leave the Pages deployment record stuck.
+
 - [ ] **Step 2: Write the repo README**
 
 `README.md`:
@@ -2206,7 +2208,7 @@ npm test        # builds into a temp dir and checks structure, tokens, and links
 
 ## How it builds
 
-`build.mjs` copies `src/` and `assets/` into `dist/`, substitutes `{{VERSION}}`
+`build.mjs` copies `src/`, `assets/`, and the root `CNAME` into `dist/`, substitutes `{{VERSION}}`
 with the latest Stratify release tag, renders every `content/*.md` file through
 marked with build-time shiki highlighting, and wraps each one in
 `templates/docs.html`.
