@@ -50,12 +50,22 @@ test('resolves the version into the landing page', async () => {
   assert.ok(!html.includes('{{'), 'unresolved token left in index.html');
 });
 
-async function withStubbedLookup(fetchStub, fn) {
+// `ci` declares which environment the wrapped lookup runs in: false (the
+// default) guarantees the non-CI fallback path regardless of what the
+// ambient runner sets, true guarantees the CI throw-instead-of-fallback
+// path. Every caller states its own intent instead of relying on whatever
+// CI happens to be in the process already — GitHub Actions sets CI=true on
+// every runner, so a helper that silently inherited it made three
+// fallback-path tests fail on CI while passing locally.
+async function withStubbedLookup(fetchStub, fn, { ci = false } = {}) {
   const realFetch = globalThis.fetch;
   const realWrite = process.stderr.write;
   const savedEnv = process.env.STRATIFY_VERSION;
+  const savedCi = process.env.CI;
   const stderr = [];
   delete process.env.STRATIFY_VERSION;
+  if (ci) process.env.CI = 'true';
+  else delete process.env.CI;
   globalThis.fetch = fetchStub;
   process.stderr.write = (chunk) => {
     stderr.push(String(chunk));
@@ -68,6 +78,8 @@ async function withStubbedLookup(fetchStub, fn) {
     process.stderr.write = realWrite;
     if (savedEnv === undefined) delete process.env.STRATIFY_VERSION;
     else process.env.STRATIFY_VERSION = savedEnv;
+    if (savedCi === undefined) delete process.env.CI;
+    else process.env.CI = savedCi;
   }
 }
 
@@ -93,30 +105,19 @@ test('falls back on a malformed tag_name', async () => {
 });
 
 test('in CI, a failed lookup throws instead of silently falling back', async () => {
-  const savedCi = process.env.CI;
-  process.env.CI = 'true';
-  try {
-    await assert.rejects(
-      () => withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion).then(({ value }) => value),
-      /version lookup failed in CI/,
-    );
-  } finally {
-    if (savedCi === undefined) delete process.env.CI;
-    else process.env.CI = savedCi;
-  }
+  await assert.rejects(
+    () =>
+      withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion, { ci: true }).then(
+        ({ value }) => value,
+      ),
+    /version lookup failed in CI/,
+  );
 });
 
 test('outside CI, a failed lookup still falls back with a warning', async () => {
-  const savedCi = process.env.CI;
-  delete process.env.CI;
-  try {
-    const { value, stderr } = await withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion);
-    assert.equal(value, FALLBACK_VERSION);
-    assert.match(stderr, /warn: version lookup failed/);
-  } finally {
-    if (savedCi === undefined) delete process.env.CI;
-    else process.env.CI = savedCi;
-  }
+  const { value, stderr } = await withStubbedLookup(() => Promise.reject(new Error('offline')), resolveVersion);
+  assert.equal(value, FALLBACK_VERSION);
+  assert.match(stderr, /warn: version lookup failed/);
 });
 
 test('sends an authorization header only when GITHUB_TOKEN is set', async () => {
