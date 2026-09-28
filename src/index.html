@@ -120,6 +120,36 @@
       <p class="caption">Stratify says <strong>unused</strong> when it proved the call graph, and <strong>possibly unused</strong> when it could not. It never hides a real finding behind a guess.</p>
     </section>
 
+    <section id="judge" aria-labelledby="judge-heading">
+      <h2 id="judge-heading">Then judge what proof left over</h2>
+      <p class="section-lede">Every hedged finding is a question the call graph could not settle: a framework hook, a test helper, a symbol reached through reflection. <a href="/docs/judge/">stratify-judge</a> pipes the report through a model, asks five specific questions per finding, and moves the confidence. No finding is ever deleted.</p>
+      <div class="terminal" data-reveal>
+        <div class="terminal-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+        <pre><code><span class="prompt">$</span> stratify check . --format json | stratify-judge --root .
+
+<span class="sev-info">info</span>  src/lib.rs:6  possibly unused function `helper`
+      jev-latest: reached by a framework (0.91)
+
+73 findings, 9 shown, 64 hidden. Re-run with --show-dismissed to see them.</code></pre>
+      </div>
+      <p class="caption">Measured on Stratify's own repository: all 15 <code>possibly unused</code> findings are false positives. The judgment dismisses all 15 and strengthens none.</p>
+      <ul class="claim-grid">
+        <li data-reveal>
+          <h3>Hosted or entirely local</h3>
+          <p>One flag picks the endpoint. <code>--backend jev</code> asks TypeSafe's hosted model. <code>--backend laya</code> asks Convai's Laya on <code>127.0.0.1</code>, Apache-2.0, where no source leaves the machine.</p>
+        </li>
+        <li data-reveal>
+          <h3>Every verdict is auditable</h3>
+          <p>A dismissed finding stays in the report. It drops below the display threshold and keeps its full judgment, every raw probability included, in the JSON.</p>
+        </li>
+        <li data-reveal>
+          <h3>It will not overrule the engine</h3>
+          <p>A finding the engine hedged is never promoted to certain, whatever the model answers. The thresholds are yours, and the answers cache in git so CI reruns without calling anything.</p>
+        </li>
+      </ul>
+      <p><a href="/docs/judge/">How the judgment works</a> · <a href="https://github.com/stratify-dev/stratify-judge">stratify-judge on GitHub</a></p>
+    </section>
+
     <section class="claims" aria-labelledby="claims-heading">
       <h2 id="claims-heading">Why teams run it</h2>
       <ul class="claim-grid">

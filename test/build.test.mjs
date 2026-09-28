@@ -238,8 +238,12 @@ test('links previous and next pages', async () => {
   assert.ok(!first.includes('rel="prev"'), 'first page should have no previous link');
   assert.match(first, /<a class="next" rel="next" href="\/docs\/analyses\/">/);
 
-  const last = await readFile(path.join(out, 'docs', 'integrations', 'index.html'), 'utf8');
-  assert.match(last, /<a class="prev" rel="prev" href="\/docs\/ci\/">/);
+  const middle = await readFile(path.join(out, 'docs', 'integrations', 'index.html'), 'utf8');
+  assert.match(middle, /<a class="prev" rel="prev" href="\/docs\/ci\/">/);
+  assert.match(middle, /<a class="next" rel="next" href="\/docs\/judge\/">/);
+
+  const last = await readFile(path.join(out, 'docs', 'judge', 'index.html'), 'utf8');
+  assert.match(last, /<a class="prev" rel="prev" href="\/docs\/integrations\/">/);
   assert.ok(!last.includes('rel="next"'), 'last page should have no next link');
 });
 
